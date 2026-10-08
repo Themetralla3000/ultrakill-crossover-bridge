@@ -1,0 +1,14 @@
+# Toolchains and downloads
+.tools/
+
+# Build outputs
+dist/
+bin/
+obj/
+
+# Runtime state (bridge files, logs, caches, install records, backups)
+runtime/
+
+# IDE
+.vs/
+*.user
