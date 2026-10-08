@@ -41,6 +41,13 @@ namespace UltrakillBridge.Guest
             var activator = Object.FindObjectOfType<PlayerActivator>();
             if (activator != null) activator.Activate();
 
+            if (!BridgeConfig.AllowCheats.Value)
+            {
+                // CheatsEnabler.Start already ran: switch what it enabled off again.
+                foreach (CheatsEnabler ce in Object.FindObjectsOfType<CheatsEnabler>(true)) ce.enabled = false;
+                Patches.CheatsGuard.Enforce(Object.FindObjectOfType<CheatsController>());
+            }
+
             Scene scene = SceneManager.GetActiveScene();
             var disabled = new List<string>();
             foreach (GameObject root in scene.GetRootGameObjects())

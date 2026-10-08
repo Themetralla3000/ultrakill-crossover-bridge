@@ -49,6 +49,7 @@ Bridge folder resolution (guest, fake host, host SDK): `UKBRIDGE_DIR`, else `ERM
 | --- | --- | --- | --- |
 | General | `Enabled` | true | Run the bridge. When false ULTRAKILL behaves normally. |
 | General | `MetresPerUnit` | 0.5 | Host metres per ULTRAKILL unit (V1 is 3.5 units tall: 1.75 m at 0.5). Range 0.05-5. |
+| General | `AllowCheats` | false | Let ULTRAKILL's cheats work while bridged. Off: the sandbox's auto-enabled cheats are switched off, the cheat menu and the CHEATS ENABLED banner are hidden and no cheat key bind fires (see below). |
 | General | `StartInSandbox` | true | Boot straight into the sandbox used as the empty shell. |
 | General | `TargetFrameRate` | 120 | ULTRAKILL's frame cap while bridged (vSync is turned off). Match it to the host's. -1 = uncapped. |
 | Combat | `HostHpPerUkHp` | 60 | Host HP per point of ULTRAKILL enemy health. Lower = enemies die faster. |
@@ -62,7 +63,8 @@ Bridge folder resolution (guest, fake host, host SDK): `UKBRIDGE_DIR`, else `ERM
 | Rendering | `CaptureFlipRows` | false | Flip captured frames vertically. |
 | Rendering | `SyncCameraToCapture` | false | Move the host camera only when a captured frame lands (exact alignment, but stutters when captures are slower than the host). Off = smooth camera, newest frame composited. |
 | Rendering | `OwnedByHost` | false | Make the host window the owner of the input window (Minecraft Ring style). Attaches both input queues: causes seconds of input lag with Unity hosts. |
-| Rendering | `WorldAlpha` / `HandAlpha` / `GuiAlpha` | MaxRgb / Opaque / MaxRgb | Alpha repair per layer: `None`, `Opaque` or `MaxRgb` (alpha from the brightest channel). |
+| Rendering | `WorldAlpha` | Matte | Alpha of the effects layer: `Matte` (difference matting, see below), `MaxRgb` (alpha from the brightest channel: dark opaque objects turn translucent), `Opaque` or `None`. |
+| Rendering | `HandAlpha` / `GuiAlpha` | Opaque / MaxRgb | Alpha repair for the viewmodel and HUD layers: `None`, `Opaque` or `MaxRgb` (`Matte` counts as `MaxRgb` there). |
 | Rendering | `HideMainRender` | false | Stop ULTRAKILL's own camera from drawing the (hidden) world, to save GPU time. Experimental. |
 | Terrain | `Radius` | 24 | Host terrain is sampled this far (metres) around V1. Range 4-64. |
 | Terrain | `CellSize` | 0.5 | Horizontal sampling resolution in metres. Range 0.25-4. |
@@ -71,6 +73,10 @@ Bridge folder resolution (guest, fake host, host SDK): `UKBRIDGE_DIR`, else `ERM
 | Debug | `Overlay` | false | Start with the F9 diagnostics shown. |
 
 Choose `MetresPerUnit` so that V1 matches your game's characters: V1 is 3.5 units tall, so a 1.8 m character wants about 0.5, a 3.6 m one about 1.0. Movement speeds scale with it (V1 walks at roughly 8 m/s at 0.5, slides at 12, dashes at 25).
+
+## Cheats
+
+While bridged, `AllowCheats = false` (default) keeps the cheats off. The sandbox enabled them three ways, all closed: the "Cheats Enabler" object (`CheatsEnabler.Start` -> `ActivateCheats`, both patched out), `CheatsController.Start` on sandbox maps (`KeepCheatsEnabled`), and a saved keep-enabled preference. `CheatsController.Update` (Konami code, Home/` menu hotkeys, status panels) is skipped, anything already active is disabled through `CheatsManager.SetCheatActive`, and the cheat menu and the CHEATS ENABLED / info panels are hidden. All cheat key binds (V noclip, B flight, M, N, C, O, L, P, I, J, H) go through `CheatsManager.HandleCheatBind`, which requires `cheatsEnabled`, so they do nothing and V is free for the bridge's `InteractKey`. The bridge uses no cheat or sandbox tool. F8/F9/F10 are the bridge's; ULTRAKILL only reads F1/F9/F10 in debug builds or test scenes. Set `AllowCheats = true` to opt back in (the sandbox then behaves as before, including V = noclip; change `InteractKey` if you need V).
 
 ## Window modes
 
@@ -90,9 +96,15 @@ The guest sends three layers per frame, premultiplied BGRA bottom-up, plus OpenG
 
 | Layer | Content | Alpha repair default |
 | --- | --- | --- |
-| world | Projectiles, explosions, gibs, particles, plus depth | MaxRgb |
+| world | Projectiles, coins, explosions, gibs, particles, plus depth | Matte |
 | hand | Arm and weapons (viewmodel) | Opaque |
 | gui | Gun/style/finish canvases and the screen-space HUD | MaxRgb |
+
+### World alpha: difference matting
+
+ULTRAKILL's shaders do not write a trustworthy alpha, and `MaxRgb` (alpha = brightest channel) makes a dark or dim but opaque object translucent: the coin's gold mesh faded to nothing while its additive glow (bright, so "correct") stayed. `Matte` renders the world layer twice with the same camera, once over opaque black and once over opaque white. Per channel, black render = `c*a` (the premultiplied colour) and white render = `c*a + (1-a)`, so `a = 1 - (white - black)`; the smallest channel difference is used and the colour is clamped to alpha. Opaque, translucent and additive pixels all come out right and the background (identical in both) is alpha 0. The pass does not depend on the shader's alpha at all.
+
+Cost: one extra world render (the world camera sees only projectiles and effects, no level), one extra GPU readback (about 8 MB at 1080p) and a slightly heavier CPU combine (one integer pass over the layer, in the same loop that copies it into the slot). Set `WorldAlpha = MaxRgb` to go back to a single pass. Matting is world-only; the HUD and viewmodel layers keep their repair modes.
 
 `CaptureFlipRows = true` flips them if V1's arm appears upside down in a host whose texture rows are the other way round.
 

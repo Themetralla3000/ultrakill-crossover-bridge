@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Cheats are off while bridged.** The sandbox auto-enabled them (CHEATS ENABLED banner, V toggled noclip while the
+  cheat menu was open). The Cheats Enabler, `CheatsController.Start/Update` and `ActivateCheats` are patched, active
+  cheats are disabled and the cheat UI hidden. `[General] AllowCheats = true` opts back in.
+- **Coins and other dark or saturated opaque projectiles render fully.** `WorldAlpha = MaxRgb` derived alpha from the
+  brightest channel, so only the coin's bright glow survived. New default `WorldAlpha = Matte`: the world layer is
+  rendered over black and over white and alpha is `1 - (white - black)` (exact for opaque, translucent and additive).
+  Cost: one extra world render and readback (~8 MB at 1080p). `MaxRgb` restores the single pass. New
+  `AlphaFix.Matte`, `GuestFrames.Matte` and `WriteLayerMatte` in the protocol library (unit tested). No wire change.
+
 ## 0.1.2 — 2026-10-08
 
 - The input window is no longer owned by the host window by default (`OwnedByHost = false`). Cross-process ownership

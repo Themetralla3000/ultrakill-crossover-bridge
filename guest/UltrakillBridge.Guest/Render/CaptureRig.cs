@@ -33,6 +33,9 @@ namespace UltrakillBridge.Guest.Render
         /// </summary>
         public static bool HideMainRender = false;
 
+        /// <summary>Render the world layer twice (over black and over white) for difference matting. Read when a rig is built.</summary>
+        public static bool WorldMatte = false;
+
         private const int HudRescanFrames = 30;
 
         public readonly Camera Main, Hud;
@@ -41,6 +44,8 @@ namespace UltrakillBridge.Guest.Render
         public Camera ViewCam { get; private set; }
         public Camera UiCam { get; private set; }
         public RenderTexture WorldRT { get; private set; }
+        /// <summary>The world pass over a white background (null unless <see cref="WorldMatte"/>); WorldRT is then over black.</summary>
+        public RenderTexture WorldWhiteRT { get; private set; }
         public RenderTexture HandRT { get; private set; }
         public RenderTexture GuiRT { get; private set; }
 
@@ -94,6 +99,7 @@ namespace UltrakillBridge.Guest.Render
                 ? RenderTextureFormat.BGRA32
                 : RenderTextureFormat.ARGB32;
             WorldRT = MakeRT("UKBridge world", fmt);
+            if (WorldMatte) WorldWhiteRT = MakeRT("UKBridge world (white)", fmt);
             HandRT = MakeRT("UKBridge hand", fmt);
             GuiRT = MakeRT("UKBridge gui", fmt);
 
@@ -169,7 +175,15 @@ namespace UltrakillBridge.Guest.Render
             WorldCam.farClipPlane = Main.farClipPlane;
             WorldCam.cullingMask = _worldMask;
             WorldCam.targetTexture = WorldRT;
+            WorldCam.backgroundColor = WorldWhiteRT != null ? new Color(0f, 0f, 0f, 1f) : new Color(0f, 0f, 0f, 0f);
             WorldCam.Render();
+            if (WorldWhiteRT != null)
+            {
+                // Same view over white: together with the black pass this gives exact per-pixel alpha (AlphaFix.Matte).
+                WorldCam.targetTexture = WorldWhiteRT;
+                WorldCam.backgroundColor = Color.white;
+                WorldCam.Render();
+            }
 
             // ---- the HUD-side cameras share HUD Camera's pose, scale (ultrawide fix) and FOV ----
             EnsureHudLayers();
@@ -286,8 +300,8 @@ namespace UltrakillBridge.Guest.Render
             if (WorldCam != null) Object.Destroy(WorldCam.gameObject);
             if (ViewCam != null) Object.Destroy(ViewCam.gameObject);
             _root = null;
-            Release(WorldRT); Release(HandRT); Release(GuiRT);
-            WorldRT = HandRT = GuiRT = null;
+            Release(WorldRT); Release(WorldWhiteRT); Release(HandRT); Release(GuiRT);
+            WorldRT = WorldWhiteRT = HandRT = GuiRT = null;
         }
 
         private static void Release(RenderTexture rt)

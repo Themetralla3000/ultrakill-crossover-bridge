@@ -58,7 +58,7 @@ namespace UltrakillBridge.Guest
             Render.FrameCapture.Scale = Mathf.Clamp(BridgeConfig.CaptureScale.Value, 0.25f, 1f);
             Render.FrameCapture.FlipRows = BridgeConfig.CaptureFlipRows.Value;
             Render.FrameCapture.SyncCameraToCapture = BridgeConfig.SyncCameraToCapture.Value;
-            Render.FrameCapture.WorldAlpha = ParseAlpha(BridgeConfig.WorldAlpha, AlphaFix.MaxRgb);
+            Render.FrameCapture.WorldAlpha = ParseAlpha(BridgeConfig.WorldAlpha, AlphaFix.Matte);
             Render.FrameCapture.HandAlpha = ParseAlpha(BridgeConfig.HandAlpha, AlphaFix.Opaque);
             Render.FrameCapture.GuiAlpha = ParseAlpha(BridgeConfig.GuiAlpha, AlphaFix.MaxRgb);
             Render.CaptureRig.HideMainRender = BridgeConfig.HideMainRender.Value;
@@ -66,7 +66,8 @@ namespace UltrakillBridge.Guest
 
         private static AlphaFix ParseAlpha(BepInEx.Configuration.ConfigEntry<string> entry, AlphaFix fallback)
         {
-            if (System.Enum.TryParse(entry.Value, true, out AlphaFix value)) return value;
+            if (System.Enum.TryParse(entry.Value, true, out AlphaFix value))
+                return value == AlphaFix.Matte && entry != BridgeConfig.WorldAlpha ? AlphaFix.MaxRgb : value;
             Log.LogWarning($"Unknown {entry.Definition.Key} '{entry.Value}', using {fallback}.");
             return fallback;
         }

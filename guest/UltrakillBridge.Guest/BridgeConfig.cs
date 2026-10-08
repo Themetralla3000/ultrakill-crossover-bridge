@@ -11,6 +11,7 @@ namespace UltrakillBridge.Guest
         public static ConfigEntry<float> MetresPerUnit;
         public static ConfigEntry<bool> StartInSandbox;
         public static ConfigEntry<int> TargetFrameRate;
+        public static ConfigEntry<bool> AllowCheats;
 
         // Combat
         public static ConfigEntry<float> HostHpPerUkHp;
@@ -49,6 +50,9 @@ namespace UltrakillBridge.Guest
             TargetFrameRate = cfg.Bind("General", "TargetFrameRate", 120,
                 "ULTRAKILL frame cap while bridged (vSync is turned off). Match it to the host's frame rate.");
 
+            AllowCheats = cfg.Bind("General", "AllowCheats", false,
+                "Let ULTRAKILL's cheats work while bridged. Off (default): the sandbox's auto-enabled cheats are switched off, the cheat menu and the CHEATS ENABLED banner are hidden and every cheat key bind (V = noclip, B = flight...) does nothing, so they cannot clash with the bridge's keys.");
+
             HostHpPerUkHp = cfg.Bind("Combat", "HostHpPerUkHp", 60f,
                 "How many host HP one point of ULTRAKILL enemy health is worth (a 221 HP soldier ~ 3.7 UK HP, like a Stray).");
             HostDamageScale = cfg.Bind("Combat", "HostDamageScale", 1f,
@@ -74,10 +78,10 @@ namespace UltrakillBridge.Guest
                 "Only move the host camera when a captured frame lands (exact alignment of V1's effects, but the camera moves at the capture rate and can stutter). Off: smooth camera, newest frame composited.");
             CaptureFlipRows = cfg.Bind("Rendering", "CaptureFlipRows", false,
                 "Flip captured frames vertically. Turn on if V1's arm and HUD appear upside down in the host.");
-            WorldAlpha = cfg.Bind("Rendering", "WorldAlpha", "MaxRgb",
-                "Alpha repair for the effects layer: None, Opaque or MaxRgb (alpha from the brightest channel).");
-            HandAlpha = cfg.Bind("Rendering", "HandAlpha", "Opaque", "Alpha repair for the viewmodel layer: None, Opaque or MaxRgb.");
-            GuiAlpha = cfg.Bind("Rendering", "GuiAlpha", "MaxRgb", "Alpha repair for the HUD layer: None, Opaque or MaxRgb.");
+            WorldAlpha = cfg.Bind("Rendering", "WorldAlpha", "Matte",
+                "Alpha for the effects layer: Matte (render over black and over white: exact alpha for opaque and translucent objects; costs one extra world render + readback), MaxRgb (alpha from the brightest channel; dark objects turn translucent), Opaque or None.");
+            HandAlpha = cfg.Bind("Rendering", "HandAlpha", "Opaque", "Alpha repair for the viewmodel layer: None, Opaque or MaxRgb (Matte is world-only and counts as MaxRgb).");
+            GuiAlpha = cfg.Bind("Rendering", "GuiAlpha", "MaxRgb", "Alpha repair for the HUD layer: None, Opaque or MaxRgb (Matte is world-only and counts as MaxRgb).");
             HideMainRender = cfg.Bind("Rendering", "HideMainRender", false,
                 "Stop ULTRAKILL's own camera from drawing the (hidden) world, to save GPU time. Experimental.");
 

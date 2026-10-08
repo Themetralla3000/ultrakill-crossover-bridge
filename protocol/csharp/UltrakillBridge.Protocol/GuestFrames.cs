@@ -14,6 +14,11 @@ namespace UltrakillBridge.Link
         /// <summary>alpha = max(alpha, r, g, b). Repairs colour that Unity premultiplied with SrcAlpha blending
         /// (rgb = c*a, alpha = a*a): the true alpha is never below the largest channel.</summary>
         MaxRgb = 2,
+        /// <summary>Difference matting: the layer was rendered twice, over black and over white
+        /// (<see cref="GuestFrames.WriteLayerMatte"/>). alpha = 1 - (white - black), colour = the black render
+        /// (already premultiplied). Exact for opaque, translucent and additive pixels alike. Needs two sources, so
+        /// <see cref="GuestFrames.WriteLayer"/> treats it as None.</summary>
+        Matte = 3,
     }
 
     /// <summary>
@@ -171,6 +176,54 @@ namespace UltrakillBridge.Link
                         Buffer.MemoryCopy(srow, drow, rowBytes, rowBytes);
                         break;
                 }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Difference matte of one pixel (B,G,R,A bytes as little-endian 0xAARRGGBB). <paramref name="overBlack"/> is the
+        /// layer rendered on an opaque black background, <paramref name="overWhite"/> on opaque white. Over black the
+        /// result is the premultiplied colour c*a; over white it is c*a + (1-a), so per channel
+        /// a = 1 - (white - black). The smallest channel difference is used (the most opaque estimate, so tinted glass
+        /// keeps its strongest channel), and colour is clamped to alpha to stay a valid premultiplied pixel.
+        /// </summary>
+        public static uint Matte(uint overBlack, uint overWhite)
+        {
+            int dr = (int)((overWhite >> 16) & 0xFF) - (int)((overBlack >> 16) & 0xFF);
+            int dg = (int)((overWhite >> 8) & 0xFF) - (int)((overBlack >> 8) & 0xFF);
+            int db = (int)(overWhite & 0xFF) - (int)(overBlack & 0xFF);
+            int d = dr < dg ? dr : dg;
+            if (db < d) d = db;
+            if (d < 0) d = 0;
+            if (d > 255) d = 255;
+            uint a = (uint)(255 - d);
+            uint r = (overBlack >> 16) & 0xFF, g = (overBlack >> 8) & 0xFF, b = overBlack & 0xFF;
+            if (r > a) r = a;
+            if (g > a) g = a;
+            if (b > a) b = a;
+            return (a << 24) | (r << 16) | (g << 8) | b;
+        }
+
+        /// <summary>
+        /// Like <see cref="WriteLayer"/> with <see cref="AlphaFix.Matte"/>: <paramref name="black"/> and
+        /// <paramref name="white"/> are the same view rendered over black and over white.
+        /// </summary>
+        public bool WriteLayerMatte(int slot, int layer, byte* black, byte* white, long srcBytes, bool flipRows)
+        {
+            if (slot < 0 || slot >= Protocol.FrameSlots || !_open[slot]) return false;
+            if (layer != LayerWorld && layer != LayerGui && layer != LayerHand) return false;
+            long layerBytes = LayerBytes(slot);
+            if (black == null || white == null || srcBytes < layerBytes) return false;
+            int w = _w[slot], hgt = _h[slot];
+            long rowBytes = (long)w * 4;
+            byte* dst = LayerPtr(slot, layer);
+            for (int y = 0; y < hgt; y++)
+            {
+                long so = (flipRows ? (long)(hgt - 1 - y) : y) * rowBytes;
+                uint* bp = (uint*)(black + so);
+                uint* wp = (uint*)(white + so);
+                uint* dp = (uint*)(dst + (long)y * rowBytes);
+                for (int x = 0; x < w; x++) dp[x] = Matte(bp[x], wp[x]);
             }
             return true;
         }

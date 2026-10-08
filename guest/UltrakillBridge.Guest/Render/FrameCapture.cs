@@ -43,9 +43,12 @@ namespace UltrakillBridge.Guest.Render
         /// emissive/soft effects (MaxRgb keeps alpha that is already right); the hand layer is opaque arms and guns (Opaque).
         /// Use None for a layer once its alpha is verified correct in game (cheapest).
         /// </summary>
-        public static AlphaFix WorldAlpha = AlphaFix.MaxRgb;
+        public static AlphaFix WorldAlpha = AlphaFix.Matte;
         public static AlphaFix HandAlpha = AlphaFix.Opaque;
         public static AlphaFix GuiAlpha = AlphaFix.MaxRgb;
+
+        /// <summary>The world layer needs the second (white background) render + readback.</summary>
+        private bool Matte => _rig != null && _rig.WorldWhiteRT != null;
 
         /// <summary>Frames that may be waiting for their readbacks.</summary>
         public const int MaxInFlight = 2;
@@ -63,8 +66,8 @@ namespace UltrakillBridge.Guest.Render
 
         private sealed class Job
         {
-            public readonly NativeArray<byte>[] Buf = new NativeArray<byte>[3];   // world, hand, gui (BGRA)
-            public readonly Action<AsyncGPUReadbackRequest>[] Callbacks = new Action<AsyncGPUReadbackRequest>[3];
+            public readonly NativeArray<byte>[] Buf = new NativeArray<byte>[4];   // world, hand, gui, world over white (BGRA)
+            public readonly Action<AsyncGPUReadbackRequest>[] Callbacks = new Action<AsyncGPUReadbackRequest>[4];
             public int Remaining;
             public bool Error, Cancelled, InUse;
             public long CancelledMs;
@@ -166,18 +169,19 @@ namespace UltrakillBridge.Guest.Render
                 job.Error = false;
                 job.Cancelled = false;
                 job.InUse = true;
-                job.Remaining = 3;
+                job.Remaining = Matte ? 4 : 3;
 
                 _rig.Render();
-                RenderTexture[] rts = { _rig.WorldRT, _rig.HandRT, _rig.GuiRT };
+                RenderTexture[] rts = { _rig.WorldRT, _rig.HandRT, _rig.GuiRT, _rig.WorldWhiteRT };
+                int n = Matte ? 4 : 3;
                 if (_async)
                 {
-                    for (int i = 0; i < 3; i++)
+                    for (int i = 0; i < n; i++)
                         AsyncGPUReadback.RequestIntoNativeArray(ref job.Buf[i], rts[i], 0, TextureFormat.BGRA32, job.Callbacks[i]);
                 }
                 else
                 {
-                    for (int i = 0; i < 3; i++) ReadSync(rts[i], job.Buf[i], job.W, job.H);
+                    for (int i = 0; i < n; i++) ReadSync(rts[i], job.Buf[i], job.W, job.H);
                     job.Remaining = 0;
                 }
                 _queue.Enqueue(job);
@@ -304,6 +308,7 @@ namespace UltrakillBridge.Guest.Render
             }
             if (_rig != null) return true;
 
+            CaptureRig.WorldMatte = WorldAlpha == AlphaFix.Matte;
             _rig = CaptureRig.TryCreate(w, h);
             if (_rig == null) return false;
             _async = SystemInfo.supportsAsyncGPUReadback;
@@ -319,7 +324,8 @@ namespace UltrakillBridge.Guest.Render
         {
             var j = new Job { W = w, H = h };
             int bytes = w * h * 4;
-            for (int i = 0; i < 3; i++)
+            int buffers = CaptureRig.WorldMatte ? 4 : 3;
+            for (int i = 0; i < buffers; i++)
             {
                 j.Buf[i] = new NativeArray<byte>(bytes, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
                 j.Callbacks[i] = req =>
@@ -383,7 +389,7 @@ namespace UltrakillBridge.Guest.Render
             foreach (Job j in _pool)
             {
                 if (j == null) continue;
-                for (int i = 0; i < 3; i++) if (j.Buf[i].IsCreated) j.Buf[i].Dispose();
+                for (int i = 0; i < 4; i++) if (j.Buf[i].IsCreated) j.Buf[i].Dispose();
                 j.InUse = false;
             }
             for (int i = 0; i < _pool.Length; i++) _pool[i] = null;
@@ -420,8 +426,10 @@ namespace UltrakillBridge.Guest.Render
             bool ok;
             try
             {
-                ok =
-                    _frames.WriteLayer(slot, GuestFrames.LayerWorld, (byte*)NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(j.Buf[0]), bytes, FlipRows, WorldAlpha) &&
+                byte* world = (byte*)NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(j.Buf[0]);
+                ok = (j.Buf[3].IsCreated
+                        ? _frames.WriteLayerMatte(slot, GuestFrames.LayerWorld, world, (byte*)NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(j.Buf[3]), bytes, FlipRows)
+                        : _frames.WriteLayer(slot, GuestFrames.LayerWorld, world, bytes, FlipRows, WorldAlpha == AlphaFix.Matte ? AlphaFix.MaxRgb : WorldAlpha)) &&
                     _frames.WriteLayer(slot, GuestFrames.LayerHand, (byte*)NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(j.Buf[1]), bytes, FlipRows, HandAlpha) &&
                     _frames.WriteLayer(slot, GuestFrames.LayerGui, (byte*)NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(j.Buf[2]), bytes, FlipRows, GuiAlpha);
             }

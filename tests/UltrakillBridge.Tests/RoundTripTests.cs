@@ -429,6 +429,27 @@ public static unsafe class RoundTripTests
             Expect(g2[3] == 0 && g2[7] == 9 && g2[11] == 20 && g2[15] == 40 && g2[19] == 200 && g2[12] == 30, "guest frames: AlphaFix.MaxRgb");
         }
 
+        // Difference matte: background (0,0,0 / 255,255,255), opaque dark pixel, half-transparent white, additive glow.
+        {
+            uint P(int a, int r, int g, int b) => ((uint)a << 24) | ((uint)r << 16) | ((uint)g << 8) | (uint)b;
+            Expect(GuestFrames.Matte(P(0, 0, 0, 0), P(255, 255, 255, 255)) == 0u, "matte: background is transparent");
+            Expect(GuestFrames.Matte(P(0, 10, 5, 2), P(255, 10, 5, 2)) == P(255, 10, 5, 2), "matte: dark opaque pixel stays opaque");
+            uint half = GuestFrames.Matte(P(0, 128, 128, 128), P(255, 255, 255, 255));
+            Expect((half >> 24) == 128 && ((half >> 16) & 0xFF) == 128, "matte: half-covered white is alpha 128, premultiplied colour 128");
+            uint glow = GuestFrames.Matte(P(0, 60, 60, 60), P(255, 255, 255, 255));
+            Expect((glow >> 24) == 60 && (glow & 0xFF) == 60, "matte: additive glow gets alpha = intensity");
+            var blk = new byte[] { 0, 0, 0, 0,   10, 5, 2, 0 };
+            var wht = new byte[] { 255, 255, 255, 255,   10, 5, 2, 255 };
+            fixed (byte* pb = blk) fixed (byte* pwh = wht)
+            {
+                int ms = gf.BeginSlot(2, 1);
+                Expect(gf.WriteLayerMatte(ms, GuestFrames.LayerWorld, pb, pwh, blk.Length, false), "matte: WriteLayerMatte accepted");
+                gf.Publish(ms, 51, Protocol.FrameWorld, 0.1f, 100f, 90f, 1f);
+                var mw = new byte[8]; var mg = new byte[8];
+                Expect(host.CopySlot(ms, out _, mw, default, mg, default) && mw[3] == 0 && mw[7] == 255 && mw[4] == 10, "matte: layer written");
+            }
+        }
+
         // Abort leaves an invalid slot, bad sizes and short sources are refused.
         int a = gf.BeginSlot(w, h);
         gf.Abort(a);
