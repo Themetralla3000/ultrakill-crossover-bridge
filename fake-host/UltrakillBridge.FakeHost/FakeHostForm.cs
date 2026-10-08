@@ -119,6 +119,9 @@ public sealed unsafe class FakeHostForm : Form
             if (e.KeyCode == Keys.H) _sim.HitMe(100f);
             else if (e.KeyCode == Keys.K) _sim.KillPlane();
             else if (e.KeyCode == Keys.R) _sim.Respawn();
+            else if (e.KeyCode == Keys.B) _sim.BumpBoss();
+            else if (e.KeyCode == Keys.N) _sim.NewRun();
+            else if (e.KeyCode == Keys.M) _sim.CycleLoadoutMode();
         }
     }
 
@@ -293,6 +296,7 @@ public sealed unsafe class FakeHostForm : Form
         lines.Add($"RAYS  batches/s={_batchesPerSec:0.0} rays/s={_raysPerSec:0} total batches={_link.RayBatchesServed} pending={_link.RayBatchPending}");
         lines.Add($"DMG   events={_sim.DamageEvents} pendingRing={_link.PendingDamage} dropped={_link.DamageDropped}  hunter hits={_sim.HunterHits}");
         lines.Add($"      last: {_sim.LastDamage}");
+        lines.Add($"RUN   loadoutMode={_sim.LoadoutMode} seed={_sim.RunSeed} bosses={_sim.Bosses} stages={_sim.Stages}  [B] boss [N] new run [M] mode");
         if (_sim.LastAction.Length > 0) lines.Add($"ACT   {_sim.LastAction}  prompt-near-door={_sim.NearDoor}");
         foreach (Enemy e in _sim.Enemies)
             lines.Add($"  {e.Name} k{e.Kind} {(e.Dead ? "DEAD " : "     ")}hp {e.Hp,5:0}/{e.MaxHp:0}");

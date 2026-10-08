@@ -233,6 +233,27 @@ namespace UltrakillBridge.Link
             return false;
         }
 
+        /// <summary>
+        /// Seqlocked read of the optional host events block. Returns false if the host never wrote it
+        /// (magic/version absent) or the read could not be made consistent.
+        /// </summary>
+        public bool ReadHostEvents(out ErmcHostEvents ev)
+        {
+            ev = default;
+            if (_b == null) return false;
+            var p = (ErmcHostEvents*)(_b + Protocol.OffHostEvents);
+            for (int tries = 0; tries < 2000; tries++)
+            {
+                uint s1 = Volatile.Read(ref p->seq);
+                if ((s1 & 1) != 0) { Thread.SpinWait(1); continue; }
+                ev = *p;
+                Thread.MemoryBarrier();
+                if (Volatile.Read(ref p->seq) == s1)
+                    return ev.magic == Protocol.HostEventsMagic && ev.version == Protocol.HostEventsVersion;
+            }
+            return false;
+        }
+
         /// <summary>Seqlock read of the host's hittable entities into <paramref name="out"/>.</summary>
         public bool ReadEntities(List<ErmcEntity> output)
         {

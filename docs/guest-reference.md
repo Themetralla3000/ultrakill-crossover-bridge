@@ -70,6 +70,10 @@ Bridge folder resolution (guest, fake host, host SDK): `UKBRIDGE_DIR`, else `ERM
 | Terrain | `CellSize` | 0.5 | Horizontal sampling resolution in metres. Range 0.25-4. |
 | Terrain | `StepHeight` | 0.6 | Height difference (m) between neighbouring samples that becomes a wall instead of a slope. |
 | Terrain | `PersistentCache` | true | Keep sampled terrain per zone in `<bridge dir>/terrain-cache/<zone>/`. |
+| Loadout | `Mode` | Host | `Host`: follow what the host asks (`ErmcHostEvents.loadoutMode`), `Save` when it asks nothing. `Save`: your ULTRAKILL save, untouched. `All`: every weapon and arm. `Progression`: start with `ProgressionStart`, unlock `UnlocksPerBoss` more items (random order fixed by the host's run seed) per boss defeated. The save is never modified (forced loadout). |
+| Loadout | `ProgressionStart` | rev0 | Items owned at the start. Ids: `rev0..2` Piercer / Sharpshooter / Marksman revolver, `sho0..2` Core Eject / Pump Charge / Sawed-On, `nai0..2` Attractor / Overheat / Sawblade Launcher, `rai0..2` Electric / Screwdriver / Malicious, `rock0..2` Freezeframe / S.R.S. / Napalm, `arm0..2` Feedbacker / Knuckleblaster / Whiplash; `rev`, `sho`, `nai` ids also have an alt variant: append `alt` (`sho1alt`). |
+| Loadout | `ProgressionPool` | all | Items that can be unlocked (same ids, or `all`; 27 in total). |
+| Loadout | `UnlocksPerBoss` | 1 | Items unlocked per boss defeated (1-10). |
 | Debug | `Overlay` | false | Start with the F9 diagnostics shown. |
 
 Choose `MetresPerUnit` so that V1 matches your game's characters: V1 is 3.5 units tall, so a 1.8 m character wants about 0.5, a 3.6 m one about 1.0. Movement speeds scale with it (V1 walks at roughly 8 m/s at 0.5, slides at 12, dashes at 25).

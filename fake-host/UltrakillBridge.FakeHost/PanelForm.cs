@@ -34,6 +34,12 @@ public sealed class PanelForm : Form
         var melee = new CheckBox { Text = "Enemy melee (<2 m)", Checked = _sim.MeleeEnabled, Left = 224, Top = y + 4, Width = 200 };
         melee.CheckedChanged += (s, e) => _sim.MeleeEnabled = melee.Checked;
         Controls.Add(melee);
+        y += 34;
+        AddButton("Boss defeated  [B]", 8, y, () => _sim.BumpBoss());
+        AddButton("New run  [N]", 224, y, () => _sim.NewRun());
+        y += 34;
+        AddButton("Loadout mode: cycle  [M]", 8, y, () => _sim.CycleLoadoutMode());
+        AddButton("Stage cleared", 224, y, () => _sim.BumpStage());
         y += 38;
 
         Controls.Add(new Label { Text = "Spawn x/y/z", Left = 8, Top = y + 4, Width = 80 });
@@ -46,7 +52,7 @@ public sealed class PanelForm : Form
         y += 30;
         Controls.Add(new Label
         {
-            Text = "Host window keys: H hit, K kill plane, R respawn, W/S/A/D walk (when not driven), F8 = mcSwitchReq++",
+            Text = "Host window keys: H hit, K kill plane, R respawn, B boss defeated, N new run, M loadout mode, W/S/A/D walk (when not driven), F8 = mcSwitchReq++",
             Left = 8, Top = y, Width = 424, Height = 32,
         });
 

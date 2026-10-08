@@ -26,6 +26,13 @@ namespace UltrakillBridge.Link
         public const int OffPlatforms = 0x310000;
         public const int OffContacts = 0x320000;
         public const int OffCollisionControl = 0x350000;
+        /// <summary>Optional ErmcHostEvents block (bridge_protocol_ext.h).</summary>
+        public const int OffHostEvents = 0x360000;
+        public const uint HostEventsMagic = 0x56454B55u; // "UKEV"
+        public const uint HostEventsVersion = 1u;
+        public const int HostEventCounters = 16;
+        public const uint LoadoutGuest = 0, LoadoutAll = 1, LoadoutProgression = 2;
+        public const int CtrBossesDefeated = 0, CtrStagesCleared = 1, CtrEliteKills = 2;
 
         public const int MaxRays = 8192;
         public const int RaysOffRays = 0x20;
@@ -293,6 +300,20 @@ namespace UltrakillBridge.Link
         public fixed float velocity[3];
         public float previousFeetZ;
     }                                   // 48
+
+    /// <summary>Optional host -> guest run info (protocol/c/bridge_protocol_ext.h).</summary>
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    public unsafe struct ErmcHostEvents
+    {
+        public uint magic;              // 0x00
+        public uint version;            // 0x04
+        public uint seq;                // 0x08
+        public uint flags;              // 0x0C
+        public uint loadoutMode;        // 0x10
+        public uint reserved0;          // 0x14
+        public ulong runSeed;           // 0x18
+        public fixed uint counters[16]; // 0x20
+    }                                   // 0x60
 
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     public struct ErmcPassage

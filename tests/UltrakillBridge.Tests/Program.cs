@@ -29,6 +29,7 @@ unsafe
     Check("ErmcPassage", sizeof(ErmcPassage), 0x20);
     Check("ErmcPlatformCell", sizeof(ErmcPlatformCell), 32);
     Check("ErmcEnvironment", sizeof(ErmcEnvironment), 24);
+    Check("ErmcHostEvents", sizeof(ErmcHostEvents), 0x60);
     Check("ErmcFramesHeader", sizeof(ErmcFramesHeader), 0x18);
     Check("ErmcFrameHeader", sizeof(ErmcFrameHeader), 0x38);
     ErmcHeader h = default;
@@ -37,6 +38,12 @@ unsafe
     ErmcGameState s = default;
     Check("stageId offset", (int)((byte*)&s.stageId - (byte*)&s), 0x7C);
     Check("supportPos offset", (int)((byte*)s.supportPos - (byte*)&s), 0x108);
+    ErmcHostEvents he = default;
+    Check("hostEvents seq offset", (int)((byte*)&he.seq - (byte*)&he), 0x08);
+    Check("hostEvents loadoutMode offset", (int)((byte*)&he.loadoutMode - (byte*)&he), 0x10);
+    Check("hostEvents runSeed offset", (int)((byte*)&he.runSeed - (byte*)&he), 0x18);
+    Check("hostEvents counters offset", (int)((byte*)he.counters - (byte*)&he), 0x20);
+    Check("OffHostEvents free + in range", Protocol.OffHostEvents >= Protocol.OffCollisionControl + 48 && Protocol.OffHostEvents + sizeof(ErmcHostEvents) <= Protocol.ShmSize ? 1 : 0, 1);
     ErmcControl c = default;
     Check("hunterYawDeg offset", (int)((byte*)&c.hunterYawDeg - (byte*)&c), 0x58);
 }
@@ -57,5 +64,6 @@ unsafe
 }
 failures += RoundTripTests.Run();
 failures += CacheTests.Run();
+failures += LoadoutTests.Run();
 Console.WriteLine(failures == 0 ? "ALL OK" : $"{failures} FAILURES");
 return failures == 0 ? 0 : 1;

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Weapon progression.** New optional protocol block `ErmcHostEvents` at `0x360000` (`bridge_protocol_ext.h`,
+  `Protocol.OffHostEvents`): the host publishes a requested loadout mode (guest / all / progression), a run seed and
+  counters (`bossesDefeated`, `stagesCleared`). No change for existing hosts (the Elden Ring DLL never writes it).
+  `HostLink.WriteHostEvents`, `GuestLink.ReadHostEvents`. The guest's new `LoadoutManager` starts with one weapon and
+  unlocks a seeded random weapon variant per boss defeated, through ULTRAKILL's forced loadout (the save is never
+  touched) and announces unlocks on the HUD. Config `[Loadout] Mode/ProgressionStart/ProgressionPool/UnlocksPerBoss`;
+  default `Mode = Host`, which is the old behaviour when the host sends nothing. Fake host: `B` boss defeated, `N` new
+  run, `M` cycle the requested mode. Tests for the layout, the round trip and the deterministic unlock order.
 - **Cheats are off while bridged.** The sandbox auto-enabled them (CHEATS ENABLED banner, V toggled noclip while the
   cheat menu was open). The Cheats Enabler, `CheatsController.Start/Update` and `ActivateCheats` are patched, active
   cheats are disabled and the cheat UI hidden. `[General] AllowCheats = true` opts back in.

@@ -142,6 +142,15 @@ If your game has "press E to open" style interactions:
 - Guest F8: the guest writes `flags = 0` and `hostFocusReq++`. On a change, bring your window to the front and give the game's controls back.
 - Your F8: poll the key (even when unfocused); when your window is foreground and F8 goes down, `mcSwitchReq++` (`HostLink.BumpSwitchRequest`). The guest recalls and takes over again after 400 ms.
 
+### M9. Weapon progression (optional)
+
+If your game has a run structure, publish run info and the guest can hand out weapons as the player progresses ("start with the revolver, every boss defeated unlocks a random new weapon"):
+
+- Call `HostLink.WriteHostEvents(loadoutMode, runSeed, counters)` once per frame (it only touches memory on change). `loadoutMode`: `Protocol.LoadoutProgression` (2), `LoadoutAll` (1) or `LoadoutGuest` (0, no opinion).
+- `runSeed` must be stable for the whole run and different between runs (the unlock order is derived from it, so the same run always unlocks the same weapons). Change it, and zero the counters, when a new run starts.
+- `counters[Protocol.CtrBossesDefeated]` = number of major bosses defeated this run (the only counter the guest uses today), `CtrStagesCleared` = stages cleared.
+- The guest never writes the player's ULTRAKILL save: it uses the game's forced-loadout mechanism. Hosts that do not publish the block keep the player's own loadout.
+
 ## 5. Exact conventions
 
 ### 5.1 Units and handedness
@@ -221,6 +230,8 @@ dotnet build UltrakillBridge.sln -c Release
 ```
 
 To test **your host against the real guest**: start your game with the bridge folder set (both `UKBRIDGE_DIR` and `ERMC_DIR`, or `scripts/Launch-Guest.ps1 -BridgeDir <your folder>` for the guest side), then `.\scripts\Launch-Guest.ps1 -BridgeDir <folder>`.
+
+Weapon progression in the fake host: it requests `Progression` by default; press `B` (or the panel button) to count a boss defeated, `N` for a new run (new seed, counters to 0), `M` to cycle the requested mode (guest / all / progression).
 
 Diagnostics in ULTRAKILL:
 

@@ -55,6 +55,14 @@ public sealed class HostSim
     public float YawDeg = 180f;      // facing = (-sin y, -cos y); 180 faces +Z
     public bool StoodIn;
     public bool MeleeEnabled = true;
+    // Optional run info for the guest's weapon progression (ErmcHostEvents).
+    public uint LoadoutMode = Protocol.LoadoutProgression;
+    public ulong RunSeed = 12345;
+    public uint Bosses, Stages;
+    public void BumpBoss() { Bosses++; Say($"boss defeated: bossesDefeated={Bosses}"); }
+    public void BumpStage() { Stages++; Say($"stage cleared: stagesCleared={Stages}"); }
+    public void NewRun() { RunSeed = (ulong)Environment.TickCount64 * 2654435761UL + 1; Bosses = 0; Stages = 0; Say($"new run: seed={RunSeed}"); }
+    public void CycleLoadoutMode() { LoadoutMode = (LoadoutMode + 1) % 3; Say($"loadout mode requested: {(LoadoutMode == 0 ? "guest" : LoadoutMode == 1 ? "all" : "progression")}"); }
     public bool CompositedRecently;  // set by the form: a composite was drawn within the last 500 ms
 
     // Camera of the frame (what state publishes and what the window renders).
@@ -316,6 +324,7 @@ public sealed class HostSim
         var st = new ErmcGameState();
         Frame = Link.BumpHeartbeat();
         st.frame = Frame;
+        Link.WriteHostEvents(LoadoutMode, RunSeed, new[] { Bosses, Stages });
         st.unitsPerMeter = 1f;
         uint flags = 0;
         if (win.Valid)

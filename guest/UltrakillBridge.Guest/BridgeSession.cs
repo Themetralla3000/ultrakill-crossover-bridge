@@ -39,6 +39,7 @@ namespace UltrakillBridge.Guest
         private FrameCapture _capture;
         private WindowOverlay _overlay;
         private HostInteraction _interaction;
+        private readonly LoadoutManager _loadout = new LoadoutManager();
 
         private ErmcGameState _state;
         private bool _alive;
@@ -173,6 +174,7 @@ namespace UltrakillBridge.Guest
                 ReleaseControl();
             }
             if (!InBridgeScene) return;
+            Guard("loadout", () => _loadout.Tick(Link, _alive, Link.NowMs));
 
             var nm = V1.Movement;
             if (!_alive || !haveState)

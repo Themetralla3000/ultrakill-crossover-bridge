@@ -7,6 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\guest\UltrakillBridge.Guest\Terrain\TerrainCache.cs" Link="TerrainCache.cs" />
+    <Compile Include="..\..\guest\UltrakillBridge.Guest\Loadout\LoadoutCatalog.cs" Link="LoadoutCatalog.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\protocol\csharp\UltrakillBridge.Protocol\UltrakillBridge.Protocol.csproj" />

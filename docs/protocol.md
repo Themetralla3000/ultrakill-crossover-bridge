@@ -92,6 +92,7 @@ There is no ownership field: the protocol assumes exactly one guest process. Two
 | 0x310000 | `ErmcPlatformTable` | host | 0x10 + 169*0x20 |
 | 0x320000 | `ErmcTerrainContacts` | (host, unimplemented) | 0x28 + 4096*0x20; section 5.2 |
 | 0x350000 | `ErmcCollisionControl` (0x30) | (guest, unimplemented) | section 5.2 |
+| 0x360000 | `ErmcHostEvents` (0x60) | host (optional) | seqlock, section 8.1; extension, `protocol/c/bridge_protocol_ext.h` |
 
 Struct packing: everything after `#pragma pack(push, 4)` packs to 4; the earlier structs (contacts, collision control, platform) are plain 4-byte-field structs, so their offsets are the same.
 
@@ -483,6 +484,23 @@ The prompt depends on the **stand-in's** position/facing, i.e. on `hunterPos`/`h
 
 `OFF_ENVIRONMENT` 0xB00, guest-written, `ErmcEnvironment` (seq, flags, timeRevision, dayTicks, weatherRevision, weather; 24 B). `flags`: `ENV_TIME=1`, `ENV_WEATHER=2`; 0 releases. `dayTicks` in [0, 24000), **0 = 06:00, 6000 = noon**; host converts `seconds = ((dayTicks % 24000) * 18/5 + 21600) % 86400` and requests that clock time (; it also sets the game's time rate to 0 while owned). `weather`: 0 clear -> WeatherParam suffix 1, 1 rain -> 20, 2 thunder -> 30 (windy rain). Only honoured while ALIVE, fresh `mcHeartbeat` (< 2 s), no scripted native time/weather in effect. **this guest: leave the block zeroed (never publish) so ER keeps its own sky and clock.** If published, the guest must republish `seq` consistently (even, nonzero) and clear flags when exiting.
 
+### 8.1 Host events block (optional extension, `OFF_HOST_EVENTS` 0x360000)
+
+Defined in `protocol/c/bridge_protocol_ext.h` (a separate header; `bridge_protocol.h` is untouched). Written by the host, read by the guest. A host that does not know it (the Elden Ring DLL) never writes it, the region stays zero and the guest sees no magic. `HostLink` zeroes the 0x60 bytes when it initialises a fresh `bridge.shm`, so a stale block from a previous host never survives.
+
+| Offset | Field | Meaning |
+| --- | --- | --- |
+| 0x00 | `magic` | `0x56454B55` ("UKEV"), written last on the first publish |
+| 0x04 | `version` | 1 |
+| 0x08 | `seq` | seqlock (odd = writing) |
+| 0x0C | `flags` | reserved, 0 |
+| 0x10 | `loadoutMode` | 0 = guest decides, 1 = all weapons, 2 = progression |
+| 0x14 | `reserved0` | 0 |
+| 0x18 | `runSeed` (u64) | identifies the run. A change means "new run": the guest reshuffles and restarts the progression. Must be stable within a run |
+| 0x20 | `counters[16]` (u32) | `[0]` bossesDefeated (major/teleporter bosses), `[1]` stagesCleared, `[2]` eliteKills (optional), rest reserved (0). Monotonic within a run; reset to 0 together with a new `runSeed` |
+
+Guest use: with `[Loadout] Mode = Host` it follows `loadoutMode`; in progression it owns `1 + bossesDefeated * UnlocksPerBoss` items out of a seeded random order (see guest-reference.md). `GuestLink.ReadHostEvents` returns false when the magic or version is absent. `HostLink.WriteHostEvents(mode, seed, counters)` writes only when something changed, so calling it every frame is cheap.
+
 ---
 
 ## 9. frames.shm in detail
@@ -653,6 +671,6 @@ For host authors who want to mirror the reference host: the camera override is a
 
 ## Appendix B. Quick offset reference
 
-bridge.shm: header 0x0, state 0x100, control 0x800, hunter events 0xA00, environment 0xB00, command mailbox 0x1000 (dev tools, ignored), command response 0x2000, rays 0x100000 (rays +0x20, hits +0x30020), entities 0x200000 (+0x10), damage 0x280000 (ring +0x10), passages 0x300000 (+0x10), platforms 0x310000 (+0x10), contacts 0x320000 (entries +0x28), collision control 0x350000.
+bridge.shm: header 0x0, state 0x100, control 0x800, hunter events 0xA00, environment 0xB00, command mailbox 0x1000 (dev tools, ignored), command response 0x2000, rays 0x100000 (rays +0x20, hits +0x30020), entities 0x200000 (+0x10), damage 0x280000 (ring +0x10), passages 0x300000 (+0x10), platforms 0x310000 (+0x10), contacts 0x320000 (entries +0x28), collision control 0x350000, host events (optional) 0x360000.
 
 frames.shm: header 0x0 (GPU extension 0x40-0xDF, host-owned), slot i at `0x1000 + i*0x7E90100`, layers at `slot + 0x100 + i*(w*h*4)`.

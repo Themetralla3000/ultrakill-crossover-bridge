@@ -37,6 +37,11 @@ namespace UltrakillBridge.Guest
         public static ConfigEntry<float> TerrainStepHeight;
         public static ConfigEntry<bool> TerrainCache;
 
+        // Loadout
+        public static ConfigEntry<string> LoadoutMode;
+        public static ConfigEntry<string> ProgressionStart, ProgressionPool;
+        public static ConfigEntry<int> UnlocksPerBoss;
+
         // Debug
         public static ConfigEntry<bool> DebugOverlay;
 
@@ -92,6 +97,14 @@ namespace UltrakillBridge.Guest
             TerrainCache = cfg.Bind("Terrain", "PersistentCache", true,
                 "Keep every sampled terrain cell on disk (<bridge dir>/terrain-cache/<zone>/) so revisited areas have collision instantly; cached cells are re-validated in the background.");
 
+            LoadoutMode = cfg.Bind("Loadout", "Mode", "Host",
+                "Which weapons V1 has. Host: do what the host asks (e.g. Risk of Rain 2 asks for Progression), Save when it asks nothing. Save: your normal ULTRAKILL save. All: every weapon and arm. Progression: start with ProgressionStart and unlock one more item (from ProgressionPool, in a random order fixed by the run seed) for each major boss the host reports defeated. Never writes to your ULTRAKILL save (uses the game's forced-loadout mechanism).");
+            ProgressionStart = cfg.Bind("Loadout", "ProgressionStart", "rev0,arm0",
+                "Comma separated items owned at the start of a progression run. Ids: rev0..2 (Piercer, Sharpshooter, Marksman revolver), sho0..2 (Core Eject, Pump Charge, Sawed-On), nai0..2 (Attractor, Overheat, Sawblade Launcher), rai0..2 (Electric, Screwdriver, Malicious), rock0..2 (Freezeframe, S.R.S., Napalm), arm0..2 (Feedbacker, Knuckleblaster, Whiplash); append 'alt' to rev/sho/nai ids for the alt variant (e.g. sho1alt).");
+            ProgressionPool = cfg.Bind("Loadout", "ProgressionPool", "all",
+                "Comma separated items that can be unlocked, same ids as ProgressionStart, or 'all'.");
+            UnlocksPerBoss = cfg.Bind("Loadout", "UnlocksPerBoss", 1, "Items unlocked per boss defeated (1-10).");
+
             DebugOverlay =cfg.Bind("Debug", "Overlay", false, "Show bridge diagnostics on screen (toggle with F9).");
             Validate();
         }
@@ -99,6 +112,14 @@ namespace UltrakillBridge.Guest
         /// <summary>Clamps values that would break the bridge (NaN, zero, negative) and logs a warning for each fix.</summary>
         private static void Validate()
         {
+            string lm = (LoadoutMode.Value ?? "").Trim();
+            if (!(lm.Equals("Host", System.StringComparison.OrdinalIgnoreCase) || lm.Equals("Save", System.StringComparison.OrdinalIgnoreCase)
+                  || lm.Equals("All", System.StringComparison.OrdinalIgnoreCase) || lm.Equals("Progression", System.StringComparison.OrdinalIgnoreCase)))
+            {
+                Warn(LoadoutMode.Definition.Key, lm, "Host");
+                LoadoutMode.Value = "Host";
+            }
+            if (UnlocksPerBoss.Value < 1 || UnlocksPerBoss.Value > 10) { Warn(UnlocksPerBoss.Definition.Key, UnlocksPerBoss.Value, 1); UnlocksPerBoss.Value = 1; }
             Clamp(MetresPerUnit, 0.05f, 5f, 0.5f);
             Clamp(HostHpPerUkHp, 0.01f, 100000f, 60f);
             Clamp(HostDamageScale, 0f, 20f, 1f);

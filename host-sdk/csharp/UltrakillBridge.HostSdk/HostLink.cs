@@ -98,6 +98,8 @@ namespace UltrakillBridge.HostSdk
             {
                 // memset(base, 0, 0x100000): everything below the ray mailbox, nothing above.
                 for (long i = 0; i < Protocol.OffRays; i += 8) *(ulong*)(_b + i) = 0;
+                // Also drop a stale optional run block left by a previous host (ErmcHostEvents).
+                for (long i = 0; i < sizeof(ErmcHostEvents); i += 8) *(ulong*)(_b + Protocol.OffHostEvents + i) = 0;
                 h->version = Protocol.Version;
                 h->size = Protocol.ShmSize;
                 Thread.MemoryBarrier();
@@ -338,6 +340,37 @@ namespace UltrakillBridge.HostSdk
             p->hunterMaxHp = hunterMaxHp;
             p->lastHitFrame = frame;
             p->lastHitKind = kind;
+            SeqEnd(&p->seq, s);
+        }
+
+        // ---- host events (optional run info, ErmcHostEvents) ------------------------------------------
+
+        /// <summary>
+        /// Publishes the optional run block (loadout mode, run seed, progress counters; at most 16, extra ignored).
+        /// Cheap to call every frame: it only touches memory when something changed. Entries of
+        /// <paramref name="counters"/> beyond its length are written as 0.
+        /// </summary>
+        public void WriteHostEvents(uint loadoutMode, ulong runSeed, uint[] counters)
+        {
+            if (_b == null) return;
+            var p = (ErmcHostEvents*)(_b + Protocol.OffHostEvents);
+            bool init = p->magic != Protocol.HostEventsMagic || p->version != Protocol.HostEventsVersion;
+            if (!init && p->loadoutMode == loadoutMode && p->runSeed == runSeed)
+            {
+                bool same = true;
+                for (int i = 0; i < Protocol.HostEventCounters && same; i++)
+                    same = p->counters[i] == (counters != null && i < counters.Length ? counters[i] : 0u);
+                if (same) return;
+            }
+            uint s = SeqBegin(&p->seq);
+            p->version = Protocol.HostEventsVersion;
+            p->flags = 0;
+            p->loadoutMode = loadoutMode;
+            p->runSeed = runSeed;
+            for (int i = 0; i < Protocol.HostEventCounters; i++)
+                p->counters[i] = counters != null && i < counters.Length ? counters[i] : 0u;
+            Thread.MemoryBarrier();
+            p->magic = Protocol.HostEventsMagic;
             SeqEnd(&p->seq, s);
         }
 

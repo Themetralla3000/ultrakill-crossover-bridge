@@ -30,6 +30,7 @@ public static unsafe class RoundTripTests
         {
             InitZeroing(dir);
             RoundTrip(dir);
+            HostEvents(dir);
             Frames(dir);
             GuestFramesWriter(dir);
         }
@@ -44,6 +45,38 @@ public static unsafe class RoundTripTests
             try { Directory.Delete(dir, true); } catch { }
         }
         return _failures;
+    }
+
+    private static void HostEvents(string dir)
+    {
+        string sub = Path.Combine(dir, "hostev");
+        Directory.CreateDirectory(sub);
+        string old = Environment.GetEnvironmentVariable("UKBRIDGE_DIR");
+        Environment.SetEnvironmentVariable("UKBRIDGE_DIR", sub);
+        try { HostEventsCore(); }
+        finally { Environment.SetEnvironmentVariable("UKBRIDGE_DIR", old); }
+    }
+
+    private static void HostEventsCore()
+    {
+        using var host = new HostLink();
+        using var guest = new GuestLink();
+        Expect(host.Open(), "hostev: host open");
+        guest.Poll();
+        Expect(guest.Mapped, "hostev: guest mapped");
+        Expect(!guest.ReadHostEvents(out _), "hostev: absent before the host writes it");
+        host.WriteHostEvents(Protocol.LoadoutProgression, 0xABCDEF0123456789UL, new uint[] { 3, 7, 11 });
+        Expect(guest.ReadHostEvents(out var ev), "hostev: present after write");
+        Expect(ev.magic == Protocol.HostEventsMagic && ev.version == 1 && ev.loadoutMode == 2 && ev.runSeed == 0xABCDEF0123456789UL, "hostev: header fields");
+        Expect(ev.counters[0] == 3 && ev.counters[1] == 7 && ev.counters[2] == 11 && ev.counters[3] == 0 && ev.counters[15] == 0, "hostev: counters");
+        Expect(ev.seq != 0 && (ev.seq & 1) == 0, "hostev: seq even and nonzero");
+        uint seq0 = ev.seq;
+        host.WriteHostEvents(Protocol.LoadoutProgression, 0xABCDEF0123456789UL, new uint[] { 3, 7, 11 });
+        guest.ReadHostEvents(out ev);
+        Expect(ev.seq == seq0, "hostev: unchanged write is a no-op");
+        host.WriteHostEvents(Protocol.LoadoutProgression, 0xABCDEF0123456789UL, new uint[] { 4, 7, 11 });
+        guest.ReadHostEvents(out ev);
+        Expect(ev.seq != seq0 && ev.counters[0] == 4, "hostev: change bumps seq");
     }
 
     private static void InitZeroing(string dir)
