@@ -31,6 +31,7 @@ public static unsafe class RoundTripTests
             InitZeroing(dir);
             RoundTrip(dir);
             HostEvents(dir);
+            GuestRequests(dir);
             Frames(dir);
             GuestFramesWriter(dir);
         }
@@ -78,6 +79,61 @@ public static unsafe class RoundTripTests
         guest.ReadHostEvents(out ev);
         Expect(ev.seq != seq0 && ev.counters[0] == 4, "hostev: change bumps seq");
     }
+
+    private static void GuestRequests(string dir)
+    {
+        string sub = Path.Combine(dir, "greq");
+        Directory.CreateDirectory(sub);
+        string old = Environment.GetEnvironmentVariable("UKBRIDGE_DIR");
+        Environment.SetEnvironmentVariable("UKBRIDGE_DIR", sub);
+        try { GuestRequestsCore(); }
+        finally { Environment.SetEnvironmentVariable("UKBRIDGE_DIR", old); }
+    }
+
+    private static void GuestRequestsCore()
+    {
+        using var host = new HostLink();
+        Expect(host.Open(), "greq: host open");
+        using var guest = new GuestLink();
+        Expect(guest.Poll() || guest.Mapped, "greq: guest mapped");
+        Expect(!host.ReadGuestRequests(out _), "greq: absent before the guest writes it");
+        guest.RequestEquipment();
+        guest.RequestPing();
+        guest.RequestPing();
+        guest.SetHeldKeys(Protocol.HeldInteract | Protocol.HeldPing);
+        guest.SetInteractKeyLabel("V");
+        guest.FlushGuestRequests();
+        Expect(host.ReadGuestRequests(out var r), "greq: present after flush");
+        Expect(r.useEquipment == 1 && r.ping == 2 && r.held == 5, "greq: counters and held bits");
+        Expect(GuestInteractName(host, r) == "V", "greq: interact key name");
+        Expect((r.seq & 1) == 0 && r.seq != 0, "greq: seq even and nonzero");
+        uint seq0 = r.seq;
+        guest.FlushGuestRequests();
+        host.ReadGuestRequests(out r);
+        Expect(r.seq == seq0, "greq: unchanged flush is a no-op");
+        guest.RequestEquipment();
+        guest.FlushGuestRequests();
+        host.ReadGuestRequests(out r);
+        Expect(r.useEquipment == 2 && r.seq != seq0, "greq: change bumps seq");
+        // A restarted guest continues from the counters in memory instead of going backwards.
+        using (var guest2 = new GuestLink())
+        {
+            guest2.Poll();
+            guest2.RequestEquipment();
+            guest2.FlushGuestRequests();
+            host.ReadGuestRequests(out r);
+            Expect(r.useEquipment == 3 && r.ping == 2, "greq: new guest continues the counters");
+        }
+        // Host flags round trip.
+        host.WriteHostEvents(Protocol.LoadoutGuest, 1, new uint[0], Protocol.HostFlagDrawsPrompt | Protocol.HostFlagNeedsInput);
+        guest.ReadHostEvents(out var ev);
+        Expect(ev.flags == 3, "hostev: flags round trip");
+        host.WriteHostEvents(Protocol.LoadoutGuest, 1, new uint[0], Protocol.HostFlagDrawsPrompt);
+        guest.ReadHostEvents(out ev);
+        Expect(ev.flags == 1, "hostev: a flag change is published");
+    }
+
+    private static string GuestInteractName(HostLink host, ErmcGuestRequests r) => HostLink.InteractKeyName(ref r);
 
     private static void InitZeroing(string dir)
     {

@@ -33,6 +33,16 @@ namespace UltrakillBridge.Link
         public const int HostEventCounters = 16;
         public const uint LoadoutGuest = 0, LoadoutAll = 1, LoadoutProgression = 2;
         public const int CtrBossesDefeated = 0, CtrStagesCleared = 1, CtrEliteKills = 2;
+        /// <summary>ErmcHostEvents.flags: the host draws its own interaction prompt.</summary>
+        public const uint HostFlagDrawsPrompt = 1u << 0;
+        /// <summary>ErmcHostEvents.flags: the host has UI that needs the mouse; the guest hands input over while set.</summary>
+        public const uint HostFlagNeedsInput = 1u << 1;
+        /// <summary>Optional ErmcGuestRequests block (bridge_protocol_ext.h), guest -> host.</summary>
+        public const int OffGuestRequests = 0x360100;
+        public const uint GuestRequestsMagic = 0x51524B55u; // "UKRQ"
+        public const uint GuestRequestsVersion = 1u;
+        public const uint HeldInteract = 1u << 0, HeldEquipment = 1u << 1, HeldPing = 1u << 2;
+        public const int InteractKeyChars = 16;
 
         public const int MaxRays = 8192;
         public const int RaysOffRays = 0x20;
@@ -314,6 +324,20 @@ namespace UltrakillBridge.Link
         public ulong runSeed;           // 0x18
         public fixed uint counters[16]; // 0x20
     }                                   // 0x60
+
+    /// <summary>Optional guest -> host requests (protocol/c/bridge_protocol_ext.h).</summary>
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    public unsafe struct ErmcGuestRequests
+    {
+        public uint magic;              // 0x00
+        public uint version;            // 0x04
+        public uint seq;                // 0x08
+        public uint held;               // 0x0C
+        public uint useEquipment;       // 0x10
+        public uint ping;               // 0x14
+        public fixed uint reserved[2];  // 0x18
+        public fixed byte interactKey[16]; // 0x20
+    }                                   // 0x30
 
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     public struct ErmcPassage

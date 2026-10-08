@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Native-feeling interactions.** `ErmcHostEvents.flags` is now defined: `HostDrawsPrompt` (the guest hides its own
+  `[V] Open` label, config `[Interaction] ShowGuestPrompt = Auto|true|false`) and `HostNeedsInput` (a host menu needs
+  the mouse: the guest enters host mode like F8 and returns when the flag clears; `[Interaction] AutoHostInput`).
+  New optional guest -> host block `ErmcGuestRequests` at `0x360100` (`UKRQ`): `useEquipment` and `ping` counters,
+  held-key bits and the interact key name; keys `[Interaction] EquipmentKey = T`, `PingKey = Mouse2`. Holding the
+  interact key repeats the action (`HoldRepeat`, `RepeatIntervalMs = 250`). `HostLink.WriteHostEvents(..., flags)`,
+  `HostLink.ReadGuestRequests`, `GuestLink.RequestEquipment/RequestPing/SetHeldKeys/SetInteractKeyLabel`. No change for
+  hosts that ignore them. Fake host: `P` native prompt, `I` menu open, equipment/ping counters. Layout and round-trip tests.
+
 - **Weapon progression.** New optional protocol block `ErmcHostEvents` at `0x360000` (`bridge_protocol_ext.h`,
   `Protocol.OffHostEvents`): the host publishes a requested loadout mode (guest / all / progression), a run seed and
   counters (`bossesDefeated`, `stagesCleared`). No change for existing hosts (the Elden Ring DLL never writes it).

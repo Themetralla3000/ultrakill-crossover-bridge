@@ -93,6 +93,7 @@ There is no ownership field: the protocol assumes exactly one guest process. Two
 | 0x320000 | `ErmcTerrainContacts` | (host, unimplemented) | 0x28 + 4096*0x20; section 5.2 |
 | 0x350000 | `ErmcCollisionControl` (0x30) | (guest, unimplemented) | section 5.2 |
 | 0x360000 | `ErmcHostEvents` (0x60) | host (optional) | seqlock, section 8.1; extension, `protocol/c/bridge_protocol_ext.h` |
+| 0x360100 | `ErmcGuestRequests` (0x30) | guest (optional) | seqlock, section 8.2; extension, `protocol/c/bridge_protocol_ext.h` |
 
 Struct packing: everything after `#pragma pack(push, 4)` packs to 4; the earlier structs (contacts, collision control, platform) are plain 4-byte-field structs, so their offsets are the same.
 
@@ -493,13 +494,30 @@ Defined in `protocol/c/bridge_protocol_ext.h` (a separate header; `bridge_protoc
 | 0x00 | `magic` | `0x56454B55` ("UKEV"), written last on the first publish |
 | 0x04 | `version` | 1 |
 | 0x08 | `seq` | seqlock (odd = writing) |
-| 0x0C | `flags` | reserved, 0 |
+| 0x0C | `flags` | `bit 0 HOSTFLAG_DRAWS_PROMPT`: the host draws its own interaction prompt (and key glyph), so the guest hides its HUD label (`[Interaction] ShowGuestPrompt = Auto`). `bit 1 HOSTFLAG_NEEDS_INPUT`: the host has UI that needs the mouse (item picker, scrapper...): the guest enters host mode (as F8 does) while the bit is set and takes control back when it clears; an F8 in the host while it is set is respected until the bit clears. Hosts that predate the bits write 0 |
 | 0x10 | `loadoutMode` | 0 = guest decides, 1 = all weapons, 2 = progression |
 | 0x14 | `reserved0` | 0 |
 | 0x18 | `runSeed` (u64) | identifies the run. A change means "new run": the guest reshuffles and restarts the progression. Must be stable within a run |
 | 0x20 | `counters[16]` (u32) | `[0]` bossesDefeated (major/teleporter bosses), `[1]` stagesCleared, `[2]` eliteKills (optional), rest reserved (0). Monotonic within a run; reset to 0 together with a new `runSeed` |
 
-Guest use: with `[Loadout] Mode = Host` it follows `loadoutMode`; in progression it owns `1 + bossesDefeated * UnlocksPerBoss` items out of a seeded random order (see guest-reference.md). `GuestLink.ReadHostEvents` returns false when the magic or version is absent. `HostLink.WriteHostEvents(mode, seed, counters)` writes only when something changed, so calling it every frame is cheap.
+Guest use: with `[Loadout] Mode = Host` it follows `loadoutMode`; in progression it owns `1 + bossesDefeated * UnlocksPerBoss` items out of a seeded random order (see guest-reference.md). `GuestLink.ReadHostEvents` returns false when the magic or version is absent. `HostLink.WriteHostEvents(mode, seed, counters, flags)` writes only when something changed, so calling it every frame is cheap. Keep `NEEDS_INPUT` stable for a few hundred milliseconds (debounce) so flickering UI does not bounce control between the games.
+
+### 8.2 Guest requests block (optional extension, `OFF_GUEST_REQUESTS` 0x360100)
+
+Guest -> host, beyond the interact action (section 7, still `mcActionReq`). A host that does not know the block ignores it. `HostLink` zeroes it when it initialises a fresh `bridge.shm`; the guest rewrites it whenever it finds it cleared or different from its own state.
+
+| Offset | Field | Meaning |
+| --- | --- | --- |
+| 0x00 | `magic` | `0x51524B55` ("UKRQ"), written last on the first publish |
+| 0x04 | `version` | 1 |
+| 0x08 | `seq` | seqlock (odd = writing) |
+| 0x0C | `held` | level state of the guest keys: `bit 0 HELD_INTERACT`, `bit 1 HELD_EQUIPMENT`, `bit 2 HELD_PING`. Only set while the guest drives V1 |
+| 0x10 | `useEquipment` | incremented per press of `[Interaction] EquipmentKey` (T) |
+| 0x14 | `ping` | incremented per press of `[Interaction] PingKey` (middle mouse) |
+| 0x18 | `reserved[2]` | 0 |
+| 0x20 | `interactKey[16]` | UTF-8 name of the guest's interact key (`"V"`, `"MMB"`), NUL-terminated, for the host's prompt glyph; empty = unknown |
+
+Counters are monotonic u32: every difference from the host's last read is one request (compare with `!=`, baseline on the first read; a restarted guest continues from the value in memory). Both aim along the guest camera (`ErmcControl.camPos/camTarget`) and should be executed as the player's own input would be (respecting cooldowns and authority). Hold-to-repeat for interaction is done by the guest: while the interact key is held and the host still publishes a prompt, it issues a new `mcActionReq` every `[Interaction] RepeatIntervalMs` (250, Risk of Rain 2's own cadence) after the previous ack; the `held` bits are published for hosts that prefer native hold handling. `HostLink.ReadGuestRequests` / `HostLink.InteractKeyName`; guest side `GuestLink.RequestEquipment/RequestPing/SetHeldKeys/SetInteractKeyLabel/FlushGuestRequests`.
 
 ---
 
@@ -671,6 +689,6 @@ For host authors who want to mirror the reference host: the camera override is a
 
 ## Appendix B. Quick offset reference
 
-bridge.shm: header 0x0, state 0x100, control 0x800, hunter events 0xA00, environment 0xB00, command mailbox 0x1000 (dev tools, ignored), command response 0x2000, rays 0x100000 (rays +0x20, hits +0x30020), entities 0x200000 (+0x10), damage 0x280000 (ring +0x10), passages 0x300000 (+0x10), platforms 0x310000 (+0x10), contacts 0x320000 (entries +0x28), collision control 0x350000, host events (optional) 0x360000.
+bridge.shm: header 0x0, state 0x100, control 0x800, hunter events 0xA00, environment 0xB00, command mailbox 0x1000 (dev tools, ignored), command response 0x2000, rays 0x100000 (rays +0x20, hits +0x30020), entities 0x200000 (+0x10), damage 0x280000 (ring +0x10), passages 0x300000 (+0x10), platforms 0x310000 (+0x10), contacts 0x320000 (entries +0x28), collision control 0x350000, host events (optional) 0x360000, guest requests (optional) 0x360100.
 
 frames.shm: header 0x0 (GPU extension 0x40-0xDF, host-owned), slot i at `0x1000 + i*0x7E90100`, layers at `slot + 0x100 + i*(w*h*4)`.

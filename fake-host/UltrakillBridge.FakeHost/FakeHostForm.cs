@@ -122,6 +122,8 @@ public sealed unsafe class FakeHostForm : Form
             else if (e.KeyCode == Keys.B) _sim.BumpBoss();
             else if (e.KeyCode == Keys.N) _sim.NewRun();
             else if (e.KeyCode == Keys.M) _sim.CycleLoadoutMode();
+            else if (e.KeyCode == Keys.P) _sim.ToggleDrawsPrompt();
+            else if (e.KeyCode == Keys.I) _sim.ToggleNeedsInput();
         }
     }
 
@@ -297,6 +299,8 @@ public sealed unsafe class FakeHostForm : Form
         lines.Add($"DMG   events={_sim.DamageEvents} pendingRing={_link.PendingDamage} dropped={_link.DamageDropped}  hunter hits={_sim.HunterHits}");
         lines.Add($"      last: {_sim.LastDamage}");
         lines.Add($"RUN   loadoutMode={_sim.LoadoutMode} seed={_sim.RunSeed} bosses={_sim.Bosses} stages={_sim.Stages}  [B] boss [N] new run [M] mode");
+        lines.Add($"CAPS  drawsPrompt={_sim.DrawsPrompt} needsInput={_sim.NeedsInput}  [P] native prompt [I] menu open   guest: interactKey='{_sim.GuestInteractKey}' held={_sim.GuestHeld:X} equipment={_sim.EquipmentUses} pings={_sim.Pings}");
+        if (_sim.DrawsPrompt && _sim.NearDoor && _sim.StoodIn) lines.Add($"      (native prompt) [{_sim.GuestInteractKey}] {(_sim.World.DoorOpen ? "Close" : "Open")}");
         if (_sim.LastAction.Length > 0) lines.Add($"ACT   {_sim.LastAction}  prompt-near-door={_sim.NearDoor}");
         foreach (Enemy e in _sim.Enemies)
             lines.Add($"  {e.Name} k{e.Kind} {(e.Dead ? "DEAD " : "     ")}hp {e.Hp,5:0}/{e.MaxHp:0}");

@@ -40,6 +40,9 @@ public sealed class PanelForm : Form
         y += 34;
         AddButton("Loadout mode: cycle  [M]", 8, y, () => _sim.CycleLoadoutMode());
         AddButton("Stage cleared", 224, y, () => _sim.BumpStage());
+        y += 34;
+        AddButton("Native prompt on/off  [P]", 8, y, () => _sim.ToggleDrawsPrompt());
+        AddButton("Menu open (needs input)  [I]", 224, y, () => _sim.ToggleNeedsInput());
         y += 38;
 
         Controls.Add(new Label { Text = "Spawn x/y/z", Left = 8, Top = y + 4, Width = 80 });
@@ -52,7 +55,7 @@ public sealed class PanelForm : Form
         y += 30;
         Controls.Add(new Label
         {
-            Text = "Host window keys: H hit, K kill plane, R respawn, B boss defeated, N new run, M loadout mode, W/S/A/D walk (when not driven), F8 = mcSwitchReq++",
+            Text = "Host window keys: H hit, K kill plane, R respawn, B boss defeated, N new run, M loadout mode, P native prompt, I menu open, W/S/A/D walk (when not driven), F8 = mcSwitchReq++",
             Left = 8, Top = y, Width = 424, Height = 32,
         });
 

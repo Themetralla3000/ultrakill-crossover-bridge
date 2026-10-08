@@ -7,7 +7,9 @@ namespace UltrakillBridge.Guest.Interaction
 {
     /// <summary>
     /// The host's own interactions (doors, levers, items, checkpoints): shows the action the host offers on
-    /// ULTRAKILL's HUD and performs it on the interact key (protocol.md section 7).
+    /// ULTRAKILL's HUD and performs it on the interact key (protocol.md section 7). Holding the key repeats the action at
+    /// the configured cadence; the equipment and ping keys raise the optional guest requests (ErmcGuestRequests); the
+    /// HUD label is hidden when the host advertises that it draws its own prompt.
     /// </summary>
     internal sealed class HostInteraction
     {
@@ -31,24 +33,37 @@ namespace UltrakillBridge.Guest.Interaction
         private uint _timedOutReq;
         private string _promptCacheSrc, _promptCacheText = "";
         private KeyCode _promptCacheKey;
+        private long _nextRepeatMs;
+        private bool _repeating;
+        private KeyCode _labelKey = KeyCode.None;
+        private bool _hostDrawsPrompt;
 
         public string Status => $"prompt '{_prompt}', {_performed} actions{(_pending ? ", waiting for the host" : "")}";
 
-        public void Tick(GuestLink link, bool driving, TerrainManager terrain, CoordMap map, Vector3 feetUk)
+        public void Tick(GuestLink link, bool driving, uint hostFlags, TerrainManager terrain, CoordMap map, Vector3 feetUk)
         {
             long now = link.NowMs;
+            _hostDrawsPrompt = (hostFlags & Protocol.HostFlagDrawsPrompt) != 0;
+            TickGuestRequests(link, driving);
             if (now >= _nextPromptPollMs)
             {
                 _nextPromptPollMs = now + PromptPollMs;
                 _prompt = driving ? link.HostPrompt : "";
             }
 
-            if (driving && !_pending && Input.GetKeyDown(BridgeConfig.InteractKey.Value))
+            var interactKey = BridgeConfig.InteractKey.Value;
+            bool press = driving && !_pending && Input.GetKeyDown(interactKey);
+            bool repeat = !press && driving && !_pending && BridgeConfig.HoldRepeat.Value && Input.GetKey(interactKey)
+                          && now >= _nextRepeatMs && _prompt.Length > 0;
+            if (!Input.GetKey(interactKey)) _repeating = false;
+            if (press || repeat)
             {
                 _timedOutReq = 0;
                 _pendingReq = link.RequestAction();
                 _pending = _pendingReq != 0;
                 _pendingAtMs = now;
+                _repeating = repeat;
+                _nextRepeatMs = now + BridgeConfig.RepeatIntervalMs.Value;
             }
             if (_pending)
             {
@@ -56,12 +71,14 @@ namespace UltrakillBridge.Guest.Interaction
                 {
                     _pending = false;
                     HandleResult(link.ActionResult, now);
+                    // The cadence runs from the answer, like RoR2's own cooldown.
+                    _nextRepeatMs = now + BridgeConfig.RepeatIntervalMs.Value;
                 }
                 else if (now - _pendingAtMs > AckTimeoutMs)
                 {
                     _pending = false;
                     _timedOutReq = _pendingReq;
-                    Flash("The host did not answer", now);
+                    Flash("The host did not answer", now, always: true);
                 }
             }
             else if (_timedOutReq != 0 && link.ActionAck == _timedOutReq)
@@ -80,6 +97,67 @@ namespace UltrakillBridge.Guest.Interaction
             UpdateLabel(now);
         }
 
+        /// <summary>Guest-drawn prompt: forced by config, or automatic when the host draws none.</summary>
+        private bool ShowPrompt
+        {
+            get
+            {
+                string v = (BridgeConfig.ShowGuestPrompt.Value ?? "Auto").Trim();
+                if (v.Equals("true", System.StringComparison.OrdinalIgnoreCase)) return true;
+                if (v.Equals("false", System.StringComparison.OrdinalIgnoreCase)) return false;
+                return !_hostDrawsPrompt;
+            }
+        }
+
+        // ---- equipment, ping, held keys (ErmcGuestRequests) ----------------------------------------
+
+        private void TickGuestRequests(GuestLink link, bool driving)
+        {
+            var ik = BridgeConfig.InteractKey.Value;
+            if (ik != _labelKey)
+            {
+                _labelKey = ik;
+                link.SetInteractKeyLabel(KeyName(ik));
+            }
+            var eq = BridgeConfig.EquipmentKey.Value;
+            var ping = BridgeConfig.PingKey.Value;
+            uint held = 0;
+            if (driving)
+            {
+                if (Input.GetKey(ik)) held |= Protocol.HeldInteract;
+                if (eq != KeyCode.None)
+                {
+                    if (Input.GetKey(eq)) held |= Protocol.HeldEquipment;
+                    if (Input.GetKeyDown(eq)) link.RequestEquipment();
+                }
+                if (ping != KeyCode.None)
+                {
+                    if (Input.GetKey(ping)) held |= Protocol.HeldPing;
+                    if (Input.GetKeyDown(ping)) link.RequestPing();
+                }
+            }
+            link.SetHeldKeys(held);
+            link.FlushGuestRequests();
+        }
+
+        /// <summary>Short name of a key for the host's glyph ("V", "MMB", "F8").</summary>
+        internal static string KeyName(KeyCode k)
+        {
+            switch (k)
+            {
+                case KeyCode.Mouse0: return "LMB";
+                case KeyCode.Mouse1: return "RMB";
+                case KeyCode.Mouse2: return "MMB";
+                case KeyCode.Mouse3: return "M4";
+                case KeyCode.Mouse4: return "M5";
+                case KeyCode.None: return "";
+            }
+            string n = k.ToString();
+            if (n.StartsWith("Alpha")) return n.Substring(5);
+            if (n.StartsWith("Keypad")) return "Num" + n.Substring(6);
+            return n;
+        }
+
         private void HandleResult(int result, long now)
         {
             switch (result)
@@ -89,19 +167,20 @@ namespace UltrakillBridge.Guest.Interaction
                     _resampleAtMs = now + ResampleDelayMs;
                     break;
                 case 0:
-                    Flash("Nothing to interact with here", now);
+                    if (!_repeating) Flash("Nothing to interact with here", now);
                     break;
                 case -2:
-                    Flash($"Ladders need the host's controls ({BridgeConfig.SwitchKey.Value})", now);
+                    Flash($"Ladders need the host's controls ({BridgeConfig.SwitchKey.Value})", now, always: true);
                     break;
                 default:
-                    Flash("Not supported here", now);
+                    Flash("Not supported here", now, always: true);
                     break;
             }
         }
 
-        private void Flash(string text, long now)
+        private void Flash(string text, long now, bool always = false)
         {
+            if (!always && !ShowPrompt) return;
             _flash = text;
             _flashUntilMs = now + FlashMs;
         }
@@ -111,7 +190,7 @@ namespace UltrakillBridge.Guest.Interaction
         private void UpdateLabel(long now)
         {
             string text = now < _flashUntilMs ? _flash
-                : string.IsNullOrEmpty(_prompt) ? "" : PromptText();
+                : string.IsNullOrEmpty(_prompt) || !ShowPrompt ? "" : PromptText();
             if (text == _shown && _label != null) return;
             if (!EnsureLabel()) return;
             _shown = text;

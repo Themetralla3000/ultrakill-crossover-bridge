@@ -100,6 +100,7 @@ namespace UltrakillBridge.HostSdk
                 for (long i = 0; i < Protocol.OffRays; i += 8) *(ulong*)(_b + i) = 0;
                 // Also drop a stale optional run block left by a previous host (ErmcHostEvents).
                 for (long i = 0; i < sizeof(ErmcHostEvents); i += 8) *(ulong*)(_b + Protocol.OffHostEvents + i) = 0;
+                for (long i = 0; i < sizeof(ErmcGuestRequests); i += 8) *(ulong*)(_b + Protocol.OffGuestRequests + i) = 0;
                 h->version = Protocol.Version;
                 h->size = Protocol.ShmSize;
                 Thread.MemoryBarrier();
@@ -350,12 +351,16 @@ namespace UltrakillBridge.HostSdk
         /// Cheap to call every frame: it only touches memory when something changed. Entries of
         /// <paramref name="counters"/> beyond its length are written as 0.
         /// </summary>
-        public void WriteHostEvents(uint loadoutMode, ulong runSeed, uint[] counters)
+        public void WriteHostEvents(uint loadoutMode, ulong runSeed, uint[] counters) =>
+            WriteHostEvents(loadoutMode, runSeed, counters, 0);
+
+        /// <param name="flags"><see cref="Protocol.HostFlagDrawsPrompt"/> | <see cref="Protocol.HostFlagNeedsInput"/>.</param>
+        public void WriteHostEvents(uint loadoutMode, ulong runSeed, uint[] counters, uint flags)
         {
             if (_b == null) return;
             var p = (ErmcHostEvents*)(_b + Protocol.OffHostEvents);
             bool init = p->magic != Protocol.HostEventsMagic || p->version != Protocol.HostEventsVersion;
-            if (!init && p->loadoutMode == loadoutMode && p->runSeed == runSeed)
+            if (!init && p->loadoutMode == loadoutMode && p->runSeed == runSeed && p->flags == flags)
             {
                 bool same = true;
                 for (int i = 0; i < Protocol.HostEventCounters && same; i++)
@@ -364,7 +369,7 @@ namespace UltrakillBridge.HostSdk
             }
             uint s = SeqBegin(&p->seq);
             p->version = Protocol.HostEventsVersion;
-            p->flags = 0;
+            p->flags = flags;
             p->loadoutMode = loadoutMode;
             p->runSeed = runSeed;
             for (int i = 0; i < Protocol.HostEventCounters; i++)
@@ -372,6 +377,40 @@ namespace UltrakillBridge.HostSdk
             Thread.MemoryBarrier();
             p->magic = Protocol.HostEventsMagic;
             SeqEnd(&p->seq, s);
+        }
+
+        // ---- guest requests (optional, ErmcGuestRequests) -----------------------------------------------
+
+        /// <summary>
+        /// Seqlocked read of the guest's optional request block (equipment / ping counters, held keys, interact key
+        /// name). False if the guest never wrote it. Compare the counters with the previous read and baseline on the first.
+        /// </summary>
+        public bool ReadGuestRequests(out ErmcGuestRequests req)
+        {
+            req = default;
+            if (_b == null) return false;
+            var p = (ErmcGuestRequests*)(_b + Protocol.OffGuestRequests);
+            for (int tries = 0; tries < 2000; tries++)
+            {
+                uint s1 = Volatile.Read(ref p->seq);
+                if ((s1 & 1) != 0) { Thread.SpinWait(1); continue; }
+                req = *p;
+                Thread.MemoryBarrier();
+                if (Volatile.Read(ref p->seq) == s1)
+                    return req.magic == Protocol.GuestRequestsMagic && req.version == Protocol.GuestRequestsVersion;
+            }
+            return false;
+        }
+
+        /// <summary>The UTF-8 interact key name from a request block ("" if none).</summary>
+        public static unsafe string InteractKeyName(ref ErmcGuestRequests req)
+        {
+            fixed (byte* k = req.interactKey)
+            {
+                int n = 0;
+                while (n < Protocol.InteractKeyChars && k[n] != 0) n++;
+                return n == 0 ? "" : System.Text.Encoding.UTF8.GetString(k, n);
+            }
         }
 
         // ---- ray mailbox ----------------------------------------------------------------------------------

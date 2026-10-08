@@ -31,6 +31,13 @@ namespace UltrakillBridge.Guest
         public static ConfigEntry<string> WorldAlpha, HandAlpha, GuiAlpha;
         public static ConfigEntry<bool> HideMainRender;
 
+        // Interaction (InteractKey itself lives in Rendering for config compatibility)
+        public static ConfigEntry<string> ShowGuestPrompt;
+        public static ConfigEntry<KeyCode> EquipmentKey, PingKey;
+        public static ConfigEntry<bool> HoldRepeat;
+        public static ConfigEntry<int> RepeatIntervalMs;
+        public static ConfigEntry<bool> AutoHostInput;
+
         // Terrain
         public static ConfigEntry<float> TerrainRadius;
         public static ConfigEntry<float> TerrainCell;
@@ -90,6 +97,19 @@ namespace UltrakillBridge.Guest
             HideMainRender = cfg.Bind("Rendering", "HideMainRender", false,
                 "Stop ULTRAKILL's own camera from drawing the (hidden) world, to save GPU time. Experimental.");
 
+            ShowGuestPrompt = cfg.Bind("Interaction", "ShowGuestPrompt", "Auto",
+                "Draw the guest's own '[V] Open' label on ULTRAKILL's HUD. Auto: only when the host does not draw its own prompt (Risk of Rain 2 does, with its own highlight and cost); true / false force it.");
+            EquipmentKey = cfg.Bind("Interaction", "EquipmentKey", KeyCode.T,
+                "Use the host character's equipment (Risk of Rain 2: the active item). None disables. ULTRAKILL itself does not use T.");
+            PingKey = cfg.Bind("Interaction", "PingKey", KeyCode.Mouse2,
+                "Ping what the crosshair is on (Risk of Rain 2 ping). Mouse2 is the middle mouse button; ULTRAKILL does not use it. None disables.");
+            HoldRepeat = cfg.Bind("Interaction", "HoldRepeat", true,
+                "Holding the interact key repeats the interaction while the host still offers one (e.g. buying from a Shrine of Chance until it is spent).");
+            RepeatIntervalMs = cfg.Bind("Interaction", "RepeatIntervalMs", 250,
+                "Milliseconds between repeats while holding the interact key (Risk of Rain 2's own cadence is 250).");
+            AutoHostInput = cfg.Bind("Interaction", "AutoHostInput", true,
+                "When the host opens a menu that needs the mouse (item pickers, scrapper, Command, ...) hand input to the host window and take it back when it closes.");
+
             TerrainRadius = cfg.Bind("Terrain", "Radius", 24f, "Host terrain is sampled this far (metres) around V1.");
             TerrainCell = cfg.Bind("Terrain", "CellSize", 0.5f, "Horizontal sampling resolution in metres.");
             TerrainStepHeight = cfg.Bind("Terrain", "StepHeight", 0.6f,
@@ -119,6 +139,14 @@ namespace UltrakillBridge.Guest
                 Warn(LoadoutMode.Definition.Key, lm, "Host");
                 LoadoutMode.Value = "Host";
             }
+            string sg = (ShowGuestPrompt.Value ?? "").Trim();
+            if (!(sg.Equals("Auto", System.StringComparison.OrdinalIgnoreCase) || sg.Equals("true", System.StringComparison.OrdinalIgnoreCase)
+                  || sg.Equals("false", System.StringComparison.OrdinalIgnoreCase)))
+            {
+                Warn(ShowGuestPrompt.Definition.Key, sg, "Auto");
+                ShowGuestPrompt.Value = "Auto";
+            }
+            Clamp(RepeatIntervalMs, 50, 2000, 250);
             if (UnlocksPerBoss.Value < 1 || UnlocksPerBoss.Value > 10) { Warn(UnlocksPerBoss.Definition.Key, UnlocksPerBoss.Value, 1); UnlocksPerBoss.Value = 1; }
             Clamp(MetresPerUnit, 0.05f, 5f, 0.5f);
             Clamp(HostHpPerUkHp, 0.01f, 100000f, 60f);
@@ -140,6 +168,26 @@ namespace UltrakillBridge.Guest
                 Warn(InteractKey.Definition.Key + " (same as SwitchKey)", InteractKey.Value, alt);
                 InteractKey.Value = alt;
             }
+            foreach (var e in new[] { EquipmentKey, PingKey })
+                if (e.Value != KeyCode.None && (e.Value == SwitchKey.Value || e.Value == InteractKey.Value || e.Value == KeyCode.Mouse0 || e.Value == KeyCode.Mouse1))
+                {
+                    Warn(e.Definition.Key + " (clashes with another key)", e.Value, KeyCode.None);
+                    e.Value = KeyCode.None;
+                }
+            if (EquipmentKey.Value != KeyCode.None && EquipmentKey.Value == PingKey.Value)
+            {
+                Warn(PingKey.Definition.Key + " (same as EquipmentKey)", PingKey.Value, KeyCode.None);
+                PingKey.Value = KeyCode.None;
+            }
+        }
+
+        private static void Clamp(ConfigEntry<int> e, int min, int max, int fallback)
+        {
+            int v = e.Value;
+            int fixedV = v < min || v > max ? fallback : v;
+            if (fixedV == v) return;
+            Warn(e.Definition.Key, v, fixedV);
+            e.Value = fixedV;
         }
 
         private static void Clamp(ConfigEntry<float> e, float min, float max, float fallback)

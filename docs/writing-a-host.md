@@ -137,6 +137,13 @@ If your game has "press E to open" style interactions:
 - When `PollActionRequest(out req)` fires, perform the interaction your character is looking at and answer with `AckAction(req, result)`: `1` done, `0` nothing to do or blocked, `-1` unsupported, `-2` needs the game's own controls (ladders, menus). The guest re-samples the terrain after a `1`, so doors and levers that move collision work.
 - The prompt depends on the *character's* position and facing, i.e. on the fidelity of `hunterPos` and `hunterYawDeg`.
 
+#### Making interactions feel native (optional)
+
+- **Draw your own prompt.** If your game already shows a context prompt with a highlight and cost, publish `Protocol.HostFlagDrawsPrompt` in `WriteHostEvents(..., flags)`. The guest then hides its `[V] Open` label (`[Interaction] ShowGuestPrompt = Auto`) and still uses the text you publish with `SetPrompt` to know that a target exists (hold-to-repeat). Read `ReadGuestRequests` + `InteractKeyName` to show the guest's key in your glyph.
+- **Hold to repeat.** The guest repeats `mcActionReq` while its interact key is held and a prompt exists (every 250 ms by default); just answer each request.
+- **Equipment and ping.** Poll `HostLink.ReadGuestRequests`; baseline the counters on the first read, then every change of `useEquipment` / `ping` is one use of the player's active item / one ping, aimed along the guest camera (`ErmcControl`). Respect cooldowns and authority exactly like your own input path.
+- **Menus.** While a UI that needs the mouse is open, set `Protocol.HostFlagNeedsInput`: the guest hands input to your window and takes it back when you clear the flag (debounce it).
+
 ### M8. F8
 
 - Guest F8: the guest writes `flags = 0` and `hostFocusReq++`. On a change, bring your window to the front and give the game's controls back.

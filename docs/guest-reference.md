@@ -37,6 +37,9 @@ Bridge folder resolution (guest, fake host, host SDK): `UKBRIDGE_DIR`, else `ERM
 | --- | --- |
 | ULTRAKILL's own binds | Movement, weapons, punch (F), whiplash (R), variants (E/Q), slots (1-6)... unchanged |
 | **V** | Perform the host's interaction (doors, levers, pickups...). Configurable (`InteractKey`) |
+| **T** | Use the host character's equipment (`[Interaction] EquipmentKey`; hosts without support ignore it) |
+| **Middle mouse** | Ping what the crosshair is on (`[Interaction] PingKey`) |
+| Hold **V** | Repeats the interaction at `RepeatIntervalMs` while the host still offers one |
 | **F8** | Hand control to the host and back. The host's own F8 also returns control. Configurable (`SwitchKey`) |
 | **F9** | Bridge diagnostics on screen |
 | **F10** | Show the rebuilt terrain inside the host's frame (floors green, walls red, ceilings blue) |
@@ -58,6 +61,10 @@ Bridge folder resolution (guest, fake host, host SDK): `UKBRIDGE_DIR`, else `ERM
 | Rendering | `Composite` | true | Send V1's viewmodel, effects and HUD to the host to be drawn into its frame. |
 | Rendering | `InputOverlay` | true | Glue ULTRAKILL's window, nearly transparent, on top of the host window so it receives the keyboard and mouse. |
 | Rendering | `SwitchKey` / `InteractKey` | F8 / V | The control-switch and interaction keys. If equal, the interact key is moved to a free one. |
+| Interaction | `ShowGuestPrompt` | Auto | The guest's own `[V] Open` HUD label. `Auto`: hidden when the host advertises that it draws its own prompt (Risk of Rain 2 does), shown otherwise; `true` / `false` force it. Errors such as "the host did not answer" are always shown. |
+| Interaction | `EquipmentKey` / `PingKey` | T / Mouse2 | Raise the optional guest requests (`ErmcGuestRequests`). ULTRAKILL's default binds use neither. `None` disables; a key equal to the switch/interact key or a fire button is disabled with a warning. |
+| Interaction | `HoldRepeat` / `RepeatIntervalMs` | true / 250 | Holding the interact key repeats the interaction while the host still publishes a prompt. |
+| Interaction | `AutoHostInput` | true | When the host sets `HostNeedsInput` (a menu needs the mouse) hand input to the host window like F8 and come back when it closes. |
 | Rendering | `WindowMode` | Layered | `Layered`, `Region` or `Tiny` (see below). Environment variable `UKBRIDGE_WINDOW_MODE` overrides. |
 | Rendering | `CaptureScale` | 1 | Capture resolution as a fraction of the host window (0.25-1). Lower = faster, blurrier V1 layers. |
 | Rendering | `CaptureFlipRows` | false | Flip captured frames vertically. |

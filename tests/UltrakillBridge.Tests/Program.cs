@@ -44,6 +44,15 @@ unsafe
     Check("hostEvents runSeed offset", (int)((byte*)&he.runSeed - (byte*)&he), 0x18);
     Check("hostEvents counters offset", (int)((byte*)he.counters - (byte*)&he), 0x20);
     Check("OffHostEvents free + in range", Protocol.OffHostEvents >= Protocol.OffCollisionControl + 48 && Protocol.OffHostEvents + sizeof(ErmcHostEvents) <= Protocol.ShmSize ? 1 : 0, 1);
+    Check("ErmcGuestRequests", sizeof(ErmcGuestRequests), 0x30);
+    ErmcGuestRequests gr = default;
+    Check("guestReq seq offset", (int)((byte*)&gr.seq - (byte*)&gr), 0x08);
+    Check("guestReq held offset", (int)((byte*)&gr.held - (byte*)&gr), 0x0C);
+    Check("guestReq useEquipment offset", (int)((byte*)&gr.useEquipment - (byte*)&gr), 0x10);
+    Check("guestReq ping offset", (int)((byte*)&gr.ping - (byte*)&gr), 0x14);
+    Check("guestReq interactKey offset", (int)(gr.interactKey - (byte*)&gr), 0x20);
+    Check("OffGuestRequests after host events + in range", Protocol.OffGuestRequests >= Protocol.OffHostEvents + sizeof(ErmcHostEvents) && Protocol.OffGuestRequests + sizeof(ErmcGuestRequests) <= Protocol.ShmSize && (Protocol.OffGuestRequests & 15) == 0 ? 1 : 0, 1);
+    Check("host flag bits", (int)(Protocol.HostFlagDrawsPrompt | Protocol.HostFlagNeedsInput << 4), 0x21);
     ErmcControl c = default;
     Check("hunterYawDeg offset", (int)((byte*)&c.hunterYawDeg - (byte*)&c), 0x58);
 }

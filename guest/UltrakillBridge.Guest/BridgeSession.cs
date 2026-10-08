@@ -51,6 +51,8 @@ namespace UltrakillBridge.Guest
         private bool _holdingForGround;
         private GameObject _tempFloor;
 
+        private uint _hostFlags;
+        private bool _autoHostMode, _suppressAutoHostMode;
         private bool _countersInit;
         private uint _lastHostLife, _lastHostDeaths, _lastSwitchReq;
         private bool _hunterInit;
@@ -179,6 +181,7 @@ namespace UltrakillBridge.Guest
             var nm = V1.Movement;
             if (!_alive || !haveState)
             {
+                _hostFlags = 0;
                 if (Driving) Plugin.Log.LogInfo("Host lost; releasing control.");
                 ReleaseControl();
                 if (_hostGoneSinceMs == long.MinValue) _hostGoneSinceMs = Link.NowMs;
@@ -193,6 +196,7 @@ namespace UltrakillBridge.Guest
             _hostGoneSinceMs = long.MinValue;
 
             Guard("counters", ReadCounters);
+            Guard("host input", HandleHostFlags);
             Guard("anchor", UpdateAnchor);
             Guard("host damage", () => { ApplyHostDamage(); DrainHostDamage(); });
             TrackOwnDeath();
@@ -226,7 +230,7 @@ namespace UltrakillBridge.Guest
                          && Link.NowMs - _recallAtMs >= RecallSettleMs && !_holdingForGround && !HostMode && V1.Ready;
             if (ready) Drive(nm);
             else ReleaseControl();
-            Guard("interaction", () => _interaction.Tick(Link, Driving, _terrain, Map, nm != null ? V1.Feet(nm) : Vector3.zero));
+            Guard("interaction", () => _interaction.Tick(Link, Driving, _hostFlags, _terrain, Map, nm != null ? V1.Feet(nm) : Vector3.zero));
             Guard("capture", () => _capture.Tick(Link));
         }
 
@@ -269,7 +273,32 @@ namespace UltrakillBridge.Guest
             if (sw != _lastSwitchReq)
             {
                 _lastSwitchReq = sw;
+                // F8 in the host while it still wants the mouse: respect it until the host UI closes.
+                if (HostMode && _autoHostMode) _suppressAutoHostMode = true;
                 if (HostMode) ExitHostMode();
+            }
+        }
+
+        /// <summary>
+        /// Host capability flags (ErmcHostEvents.flags). While the host has UI that needs the mouse (HostNeedsInput) the
+        /// guest enters host mode like F8 does and leaves it again when the flag clears.
+        /// </summary>
+        private void HandleHostFlags()
+        {
+            _hostFlags = Link.ReadHostEvents(out ErmcHostEvents ev) ? ev.flags : 0;
+            bool needs = (_hostFlags & Protocol.HostFlagNeedsInput) != 0 && BridgeConfig.AutoHostInput.Value;
+            if (!needs)
+            {
+                _suppressAutoHostMode = false;
+                if (_autoHostMode && HostMode) ExitHostMode();
+                _autoHostMode = false;
+                return;
+            }
+            if (!HostMode && !_suppressAutoHostMode)
+            {
+                EnterHostMode();
+                _autoHostMode = true;
+                Plugin.Log.LogInfo("The host needs the mouse (menu open); control -> host until it closes.");
             }
         }
 
@@ -499,6 +528,7 @@ namespace UltrakillBridge.Guest
         private void ExitHostMode()
         {
             HostMode = false;
+            _autoHostMode = false;
             _recallPending = true;
             _overlay.ExitHostMode();
             Plugin.Log.LogInfo("Control -> ULTRAKILL.");

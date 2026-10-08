@@ -63,6 +63,15 @@ public sealed class HostSim
     public void BumpStage() { Stages++; Say($"stage cleared: stagesCleared={Stages}"); }
     public void NewRun() { RunSeed = (ulong)Environment.TickCount64 * 2654435761UL + 1; Bosses = 0; Stages = 0; Say($"new run: seed={RunSeed}"); }
     public void CycleLoadoutMode() { LoadoutMode = (LoadoutMode + 1) % 3; Say($"loadout mode requested: {(LoadoutMode == 0 ? "guest" : LoadoutMode == 1 ? "all" : "progression")}"); }
+    // Optional capabilities (ErmcHostEvents.flags) and the guest's optional requests (ErmcGuestRequests).
+    public bool DrawsPrompt;     // pretend to draw a native prompt: the guest hides its own label
+    public bool NeedsInput;      // pretend a menu is open: the guest hands input to this window
+    public void ToggleDrawsPrompt() { DrawsPrompt = !DrawsPrompt; Say($"host draws its own prompt: {DrawsPrompt}"); }
+    public void ToggleNeedsInput() { NeedsInput = !NeedsInput; Say($"host needs input (menu open): {NeedsInput}"); }
+    public uint EquipmentUses, Pings, GuestHeld;
+    public string GuestInteractKey = "";
+    private bool _reqInit;
+    private uint _lastEq, _lastPing;
     public bool CompositedRecently;  // set by the form: a composite was drawn within the last 500 ms
 
     // Camera of the frame (what state publishes and what the window renders).
@@ -307,6 +316,7 @@ public sealed class HostSim
             if (MeleeEnabled) Melee(now);
             PublishEntities();
             ServiceAction(now);
+            ServiceGuestRequests();
         }
         else
         {
@@ -324,7 +334,8 @@ public sealed class HostSim
         var st = new ErmcGameState();
         Frame = Link.BumpHeartbeat();
         st.frame = Frame;
-        Link.WriteHostEvents(LoadoutMode, RunSeed, new[] { Bosses, Stages });
+        Link.WriteHostEvents(LoadoutMode, RunSeed, new[] { Bosses, Stages },
+            (DrawsPrompt ? Protocol.HostFlagDrawsPrompt : 0u) | (NeedsInput ? Protocol.HostFlagNeedsInput : 0u));
         st.unitsPerMeter = 1f;
         uint flags = 0;
         if (win.Valid)
@@ -467,6 +478,16 @@ public sealed class HostSim
             Link.AckAction(req, result);
         }
         Link.SetPrompt(StoodIn && near ? (World.DoorOpen ? "Close" : "Open") : "");
+    }
+
+    private void ServiceGuestRequests()
+    {
+        if (!Link.ReadGuestRequests(out ErmcGuestRequests r)) return;
+        GuestHeld = r.held;
+        GuestInteractKey = HostLink.InteractKeyName(ref r);
+        if (!_reqInit) { _reqInit = true; _lastEq = r.useEquipment; _lastPing = r.ping; return; }  // baseline
+        if (r.useEquipment != _lastEq) { _lastEq = r.useEquipment; EquipmentUses++; Say($"[equipment] use #{EquipmentUses} (guest counter {r.useEquipment})"); }
+        if (r.ping != _lastPing) { _lastPing = r.ping; Pings++; Say($"[ping] #{Pings} along the camera (guest counter {r.ping})"); }
     }
 
     public bool NearDoor => World.DistanceToDoor(Pos) <= 2f;

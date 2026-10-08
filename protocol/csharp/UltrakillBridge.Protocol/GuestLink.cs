@@ -254,6 +254,72 @@ namespace UltrakillBridge.Link
             return false;
         }
 
+        // ---- guest requests (optional, ErmcGuestRequests) -------------------------------------------
+
+        private uint _reqEquipment, _reqPing, _reqHeld;
+        private byte[] _reqKeyLabel = new byte[Protocol.InteractKeyChars];
+        private bool _reqSynced;
+
+        /// <summary>One press of the guest's equipment key (the host uses the player's equipment).</summary>
+        public void RequestEquipment() { SyncRequestBaseline(); _reqEquipment++; }
+
+        /// <summary>One press of the guest's ping key (the host pings along the guest camera).</summary>
+        public void RequestPing() { SyncRequestBaseline(); _reqPing++; }
+
+        /// <summary>Level state of the guest's keys, <see cref="Protocol.HeldInteract"/> | ...</summary>
+        public void SetHeldKeys(uint held) { SyncRequestBaseline(); _reqHeld = held; }
+
+        /// <summary>The name of the guest's interact key, for the host's own prompt glyph (max 15 bytes of UTF-8).</summary>
+        public void SetInteractKeyLabel(string label)
+        {
+            SyncRequestBaseline();
+            var b = new byte[Protocol.InteractKeyChars];
+            byte[] src = Encoding.UTF8.GetBytes(label ?? "");
+            Array.Copy(src, b, Math.Min(src.Length, Protocol.InteractKeyChars - 1));
+            _reqKeyLabel = b;
+        }
+
+        /// <summary>
+        /// Counters continue from what the shared memory holds (a restarted guest must not go backwards while the
+        /// host is still running), once, before the first request.
+        /// </summary>
+        private void SyncRequestBaseline()
+        {
+            if (_reqSynced || _b == null) return;
+            _reqSynced = true;
+            var p = (ErmcGuestRequests*)(_b + Protocol.OffGuestRequests);
+            if (p->magic == Protocol.GuestRequestsMagic && p->version == Protocol.GuestRequestsVersion)
+            {
+                _reqEquipment = p->useEquipment;
+                _reqPing = p->ping;
+            }
+        }
+
+        /// <summary>Publishes the request block if anything changed (or the host cleared it). Cheap to call every frame.</summary>
+        public void FlushGuestRequests()
+        {
+            if (_b == null || !_reqSynced) return;
+            var p = (ErmcGuestRequests*)(_b + Protocol.OffGuestRequests);
+            bool ok = p->magic == Protocol.GuestRequestsMagic && p->version == Protocol.GuestRequestsVersion
+                      && p->useEquipment == _reqEquipment && p->ping == _reqPing && p->held == _reqHeld;
+            if (ok)
+                for (int i = 0; i < Protocol.InteractKeyChars; i++)
+                    if (p->interactKey[i] != _reqKeyLabel[i]) { ok = false; break; }
+            if (ok) return;
+            uint s = Volatile.Read(ref p->seq);
+            if ((s & 1) != 0) s++;
+            Volatile.Write(ref p->seq, s + 1);
+            Thread.MemoryBarrier();
+            p->version = Protocol.GuestRequestsVersion;
+            p->held = _reqHeld;
+            p->useEquipment = _reqEquipment;
+            p->ping = _reqPing;
+            for (int i = 0; i < Protocol.InteractKeyChars; i++) p->interactKey[i] = _reqKeyLabel[i];
+            Thread.MemoryBarrier();
+            p->magic = Protocol.GuestRequestsMagic;
+            Volatile.Write(ref p->seq, s + 2);
+        }
+
         /// <summary>Seqlock read of the host's hittable entities into <paramref name="out"/>.</summary>
         public bool ReadEntities(List<ErmcEntity> output)
         {
