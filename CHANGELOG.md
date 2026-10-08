@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 — 2026-10-08
+
+- The input window is no longer owned by the host window by default (`OwnedByHost = false`). Cross-process ownership
+  attaches the two processes' input queues; with a host that pumps messages once per frame (Unity games such as
+  Risk of Rain 2) ULTRAKILL's mouse and keyboard lagged by up to seconds. The window is kept above the host by taking
+  the focus back whenever the host comes to the front while V1 is played.
+
 ## 0.1.1 — 2026-10-08
 
 - The live camera pose is published every guest frame and the host composites the newest captured frame, so the

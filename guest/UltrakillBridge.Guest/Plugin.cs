@@ -13,7 +13,7 @@ namespace UltrakillBridge.Guest
     {
         public const string Guid = "dev.ukbridge.guest";
         public const string Name = "ULTRAKILL Crossover Bridge";
-        public const string Version = "0.1.0";
+        public const string Version = "0.1.2";
 
         internal static ManualLogSource Log;
 
