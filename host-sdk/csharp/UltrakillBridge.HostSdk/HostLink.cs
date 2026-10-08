@@ -101,6 +101,7 @@ namespace UltrakillBridge.HostSdk
                 // Also drop a stale optional run block left by a previous host (ErmcHostEvents).
                 for (long i = 0; i < sizeof(ErmcHostEvents); i += 8) *(ulong*)(_b + Protocol.OffHostEvents + i) = 0;
                 for (long i = 0; i < sizeof(ErmcGuestRequests); i += 8) *(ulong*)(_b + Protocol.OffGuestRequests + i) = 0;
+                for (long i = 0; i < sizeof(ErmcHostCombat); i += 8) *(ulong*)(_b + Protocol.OffHostCombat + i) = 0;
                 h->version = Protocol.Version;
                 h->size = Protocol.ShmSize;
                 Thread.MemoryBarrier();
@@ -376,6 +377,48 @@ namespace UltrakillBridge.HostSdk
                 p->counters[i] = counters != null && i < counters.Length ? counters[i] : 0u;
             Thread.MemoryBarrier();
             p->magic = Protocol.HostEventsMagic;
+            SeqEnd(&p->seq, s);
+        }
+
+        // ---- host combat (optional, ErmcHostCombat) ---------------------------------------------------
+
+        /// <summary>
+        /// Publishes the optional combat block that goes with <see cref="Protocol.HostFlagStatDamage"/>: the host
+        /// character's damage / crit stats and the per-weapon table (<paramref name="k"/> and <paramref name="proc"/>,
+        /// indexed by weapon id, up to 64 entries; shorter arrays leave the rest 0). Cheap to call every frame: it only
+        /// touches memory when something changed. Call it BEFORE setting the flag in <see cref="WriteHostEvents(uint, ulong, uint[], uint)"/>.
+        /// </summary>
+        public void WriteHostCombat(uint level, float damage, float critPercent, float critMultiplier,
+            float damageScale, float headshotMultiplier, float[] k, float[] proc)
+        {
+            if (_b == null) return;
+            var p = (ErmcHostCombat*)(_b + Protocol.OffHostCombat);
+            bool init = p->magic != Protocol.HostCombatMagic || p->version != Protocol.HostCombatVersion;
+            bool same = !init && p->level == level && p->damage == damage && p->critPercent == critPercent
+                && p->critMultiplier == critMultiplier && p->damageScale == damageScale
+                && p->headshotMultiplier == headshotMultiplier && (p->flags & Protocol.CombatStatsValid) != 0;
+            for (int i = 0; i < Protocol.WeaponSlots && same; i++)
+            {
+                float kk = k != null && i < k.Length ? k[i] : 0f, pp = proc != null && i < proc.Length ? proc[i] : 0f;
+                same = p->weapons[i * 2] == kk && p->weapons[i * 2 + 1] == pp;
+            }
+            if (same) return;
+            uint s = SeqBegin(&p->seq);
+            p->version = Protocol.HostCombatVersion;
+            p->flags = Protocol.CombatStatsValid;
+            p->level = level;
+            p->damage = damage;
+            p->critPercent = critPercent;
+            p->critMultiplier = critMultiplier;
+            p->damageScale = damageScale;
+            p->headshotMultiplier = headshotMultiplier;
+            for (int i = 0; i < Protocol.WeaponSlots; i++)
+            {
+                p->weapons[i * 2] = k != null && i < k.Length ? k[i] : 0f;
+                p->weapons[i * 2 + 1] = proc != null && i < proc.Length ? proc[i] : 0f;
+            }
+            Thread.MemoryBarrier();
+            p->magic = Protocol.HostCombatMagic;
             SeqEnd(&p->seq, s);
         }
 

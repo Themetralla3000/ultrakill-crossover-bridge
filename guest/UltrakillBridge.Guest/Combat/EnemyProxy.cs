@@ -40,7 +40,12 @@ namespace UltrakillBridge.Guest.Combat
         private Vector3 _half = new Vector3(-1f, -1f, -1f);
 
         // ---- damage bookkeeping ----
+        /// <summary>Legacy encoding: every hit as a fraction of max HP (also what parry adds); kept in step with <see cref="Stat"/>.</summary>
         public float PendingFraction;
+        /// <summary>Part of the pending damage that is a parry (sent as a fraction even on a stat host).</summary>
+        public float PendingParry;
+        /// <summary>Stat encoding: the same hits aggregated per (weapon, weak point, shot, kind).</summary>
+        public readonly StatAggregator Stat = new StatAggregator();
         public Vector3 PendingHitUk;
         public float LastHitTime = -100f;
         public bool LocalDead;
@@ -146,11 +151,23 @@ namespace UltrakillBridge.Guest.Combat
         }
 
         /// <summary>Records damage to be sent to the host (aggregated and flushed by the manager).</summary>
-        public void AddDamage(float fractionOfMax, Vector3 hitPointUk)
+        public void AddDamage(float fractionOfMax, Vector3 hitPointUk, bool parry = false)
         {
             if (!(fractionOfMax > 0f) || float.IsInfinity(fractionOfMax)) return;
             PendingFraction += fractionOfMax;
+            if (parry) PendingParry += fractionOfMax;
             PendingHitUk = hitPointUk;
+            LastHitTime = Time.unscaledTime;
+        }
+
+        /// <summary>
+        /// Records one hit for both encodings: the legacy fraction (<paramref name="fractionOfMax"/>, head bonus included)
+        /// and the stat entry (<paramref name="ukBase"/> = base damage without the head bonus).
+        /// </summary>
+        public void AddHit(float fractionOfMax, int weaponId, float ukBase, bool weakpoint, int shotSeq, int kind, Vector3 hitPointUk)
+        {
+            AddDamage(fractionOfMax, hitPointUk);
+            Stat.Add(weaponId, weakpoint, shotSeq, kind, ukBase);
             LastHitTime = Time.unscaledTime;
         }
 
@@ -162,7 +179,7 @@ namespace UltrakillBridge.Guest.Combat
         {
             if (Eid == null || LocalDead || Eid.dead || !(fractionOfMax > 0f)) return false;
             if (!Eid.blessed) Eid.health -= fractionOfMax * UkMax;
-            AddDamage(fractionOfMax, hitPointUk);
+            AddDamage(fractionOfMax, hitPointUk, parry: true);
             if (Eid.health <= 0f)
             {
                 OnLocalDeath();

@@ -68,6 +68,18 @@ public sealed class HostSim
     public bool NeedsInput;      // pretend a menu is open: the guest hands input to this window
     public void ToggleDrawsPrompt() { DrawsPrompt = !DrawsPrompt; Say($"host draws its own prompt: {DrawsPrompt}"); }
     public void ToggleNeedsInput() { NeedsInput = !NeedsInput; Say($"host needs input (menu open): {NeedsInput}"); }
+    // Stat damage model (fake body stats so the stat path can be tested without RoR2).
+    public bool StatDamage = true;        // advertise HostFlagStatDamage + publish ErmcHostCombat
+    public float BodyDamage = 12f, CritPercent = 10f, CritMultiplier = 2f, DamageScale = 1f, HeadshotMultiplier = 1.5f;
+    public uint BodyLevel = 1;
+    public readonly WeaponTable Weapons = WeaponTable.CreateDefaults();
+    private readonly ShotRollCache _crits = new ShotRollCache();
+    private readonly Random _rng = new Random();
+    private readonly float[] _k = new float[Protocol.WeaponSlots], _proc = new float[Protocol.WeaponSlots];
+    private readonly System.Collections.Generic.Queue<(long ms, float dmg, float procs, int hits)>[] _recent =
+        new System.Collections.Generic.Queue<(long, float, float, int)>[Protocol.WeaponSlots];
+    public const long DpsWindowMs = 5000;
+    public void ToggleStatDamage() { StatDamage = !StatDamage; Say($"stat damage model advertised: {StatDamage}"); }
     public uint EquipmentUses, Pings, GuestHeld;
     public string GuestInteractKey = "";
     private bool _reqInit;
@@ -334,8 +346,11 @@ public sealed class HostSim
         var st = new ErmcGameState();
         Frame = Link.BumpHeartbeat();
         st.frame = Frame;
+        Weapons.Fill(_k, _proc, WeaponTable.DefaultProcTargetPerSec, WeaponTable.DefaultProcCap);
+        Link.WriteHostCombat(BodyLevel, BodyDamage, CritPercent, CritMultiplier, DamageScale, HeadshotMultiplier, _k, _proc);
         Link.WriteHostEvents(LoadoutMode, RunSeed, new[] { Bosses, Stages },
-            (DrawsPrompt ? Protocol.HostFlagDrawsPrompt : 0u) | (NeedsInput ? Protocol.HostFlagNeedsInput : 0u));
+            (DrawsPrompt ? Protocol.HostFlagDrawsPrompt : 0u) | (NeedsInput ? Protocol.HostFlagNeedsInput : 0u) |
+            (StatDamage ? Protocol.HostFlagStatDamage : 0u));
         st.unitsPerMeter = 1f;
         uint flags = 0;
         if (win.Valid)
@@ -434,10 +449,26 @@ public sealed class HostSim
             if (idx < 0) { Say($"[dmg] id=0x{d.id:X} dropped: not published last tick"); continue; }
             if (!_pubHostileAlive[idx]) { Say($"[dmg] id=0x{d.id:X} dropped: not hostile/alive"); continue; }
             Enemy e = Enemies[idx];
-            int hp = ErHp(d.amount, e.MaxHp);
+            int hp;
+            string detail = "";
+            if ((d.flags & Protocol.DamageStat) != 0 && (d.flags & Protocol.DamageFraction) == 0 && StatDamage)
+            {
+                int w = StatWire.WeaponOf(d.reserved), cnt = StatWire.HitCountOf(d.reserved), seq = StatWire.ShotSeqOf(d.reserved);
+                bool head = (d.flags & Protocol.DamageWeakpoint) != 0;
+                bool crit = _crits.Get(w, seq, now, () => _rng.NextDouble() * 100.0 < CritPercent);
+                float dmg = StatWire.HostDamage(BodyDamage, DamageScale, _k[w], d.amount, head, HeadshotMultiplier) * (crit ? CritMultiplier : 1f);
+                float procs = ProcBudget.Entry(_proc[w], cnt, WeaponTable.DefaultProcCap);
+                hp = Math.Max(1, (int)MathF.Ceiling(dmg));
+                RecordWeapon(w, now, hp, procs, cnt);
+                detail = $" [{WeaponId.NameOf(w)} x{cnt} seq{seq} uk={d.amount:0.###}{(head ? " HEAD" : "")}{(crit ? " CRIT" : "")} proc={procs:0.00}]";
+            }
+            else
+            {
+                hp = ErHp(d.amount, e.MaxHp);
+            }
             float before = e.Hp;
             e.Hp = MathF.Max(0, e.Hp - hp);
-            LastDamage = $"{e.Name} amount={d.amount:0.###} -> -{hp} hp ({before:0}->{e.Hp:0}/{e.MaxHp:0}) flags={d.flags}";
+            LastDamage = $"{e.Name} amount={d.amount:0.###} -> -{hp} hp ({before:0}->{e.Hp:0}/{e.MaxHp:0}) flags={d.flags}{detail}";
             Say("[hit] " + LastDamage);
             if (e.Hp <= 0)
             {
@@ -446,6 +477,31 @@ public sealed class HostSim
                 Say($"[kill] {e.Name} died, respawns in {EnemyRespawnMs} ms");
             }
         }
+    }
+
+    private void RecordWeapon(int w, long now, float dmg, float procs, int hits)
+    {
+        var q = _recent[w] ??= new System.Collections.Generic.Queue<(long, float, float, int)>();
+        q.Enqueue((now, dmg, procs, hits));
+        while (q.Count > 0 && now - q.Peek().ms > DpsWindowMs) q.Dequeue();
+    }
+
+    /// <summary>Per-weapon damage rates over the last 5 s: name, damage/s, hits/s, procs/s.</summary>
+    public System.Collections.Generic.List<string> WeaponRates(long now)
+    {
+        var lines = new System.Collections.Generic.List<string>();
+        for (int w = 0; w < _recent.Length; w++)
+        {
+            var q = _recent[w];
+            if (q == null) continue;
+            while (q.Count > 0 && now - q.Peek().ms > DpsWindowMs) q.Dequeue();
+            if (q.Count == 0) continue;
+            float dmg = 0, procs = 0; int hits = 0;
+            foreach (var x in q) { dmg += x.dmg; procs += x.procs; hits += x.hits; }
+            float secs = DpsWindowMs / 1000f;
+            lines.Add($"  {WeaponId.NameOf(w),-14} dps {dmg / secs,6:0.0}  hits/s {hits / secs,5:0.0}  procs/s {procs / secs,4:0.0}");
+        }
+        return lines;
     }
 
     private void Melee(long now)

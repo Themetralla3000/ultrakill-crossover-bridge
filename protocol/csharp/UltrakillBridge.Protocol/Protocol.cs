@@ -37,6 +37,19 @@ namespace UltrakillBridge.Link
         public const uint HostFlagDrawsPrompt = 1u << 0;
         /// <summary>ErmcHostEvents.flags: the host has UI that needs the mouse; the guest hands input over while set.</summary>
         public const uint HostFlagNeedsInput = 1u << 1;
+        /// <summary>
+        /// ErmcHostEvents.flags: the host understands the stat damage wire format (ErmcDamage.flags STAT, weapon id /
+        /// hit count / shot sequence in <c>reserved</c>) and publishes the ErmcHostCombat block. Without it the guest
+        /// keeps sending the legacy fraction encoding.
+        /// </summary>
+        public const uint HostFlagStatDamage = 1u << 2;
+        /// <summary>Optional ErmcHostCombat block (bridge_protocol_ext.h), host -> guest: stats and the per-weapon table.</summary>
+        public const int OffHostCombat = 0x361000;
+        public const uint HostCombatMagic = 0x42434B55u; // "UKCB"
+        public const uint HostCombatVersion = 1u;
+        public const int WeaponSlots = 64;
+        /// <summary>ErmcHostCombat.flags: the stats fields (level, damage, crit...) are valid.</summary>
+        public const uint CombatStatsValid = 1u << 0;
         /// <summary>Optional ErmcGuestRequests block (bridge_protocol_ext.h), guest -> host.</summary>
         public const int OffGuestRequests = 0x360100;
         public const uint GuestRequestsMagic = 0x51524B55u; // "UKRQ"
@@ -92,6 +105,15 @@ namespace UltrakillBridge.Link
         public const uint DamageOutward = 1u << 1;
         public const uint DamageNotByPlayer = 1u << 2;
         public const uint DamageWorldRay = 1u << 3;
+        // Stat damage extension (only sent when the host set HostFlagStatDamage; see StatWire):
+        /// <summary>amount = sum of ULTRAKILL base damage, reserved = weapon id / hit count / shot seq / kind.</summary>
+        public const uint DamageStat = 1u << 4;
+        /// <summary>At least one aggregated hit hit a weak point (head). Base damage excludes the head bonus.</summary>
+        public const uint DamageWeakpoint = 1u << 5;
+        /// <summary>Area hit (explosion): the host adds the AOE damage type.</summary>
+        public const uint DamageExplosion = 1u << 6;
+        /// <summary>Legacy fraction semantics on a stat host (parry): amount = fraction of max HP * mc.</summary>
+        public const uint DamageFraction = 1u << 7;
 
         // ErmcTerrainContact.kind
         public const uint ContactFloor = 1u;
@@ -324,6 +346,34 @@ namespace UltrakillBridge.Link
         public ulong runSeed;           // 0x18
         public fixed uint counters[16]; // 0x20
     }                                   // 0x60
+
+    /// <summary>One weapon row of <see cref="ErmcHostCombat"/>.</summary>
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    public struct ErmcWeaponCoeff
+    {
+        public float k;                 // host damage coefficient per ULTRAKILL damage point (x body damage)
+        public float proc;              // procCoefficient per hit
+    }                                   // 8
+
+    /// <summary>Optional host -> guest combat block (protocol/c/bridge_protocol_ext.h).</summary>
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    public unsafe struct ErmcHostCombat
+    {
+        public uint magic;              // 0x00
+        public uint version;            // 0x04
+        public uint seq;                // 0x08
+        public uint flags;              // 0x0C
+        public uint level;              // 0x10
+        public float damage;            // 0x14 body.damage
+        public float attackSpeedRatio;  // 0x18 (reserved for later phases)
+        public float critPercent;       // 0x1C body.crit
+        public float critMultiplier;    // 0x20 body.critMultiplier
+        public fixed float reserved1[15]; // 0x24..0x5F (moveRatio, armor, hp, ... for later phases)
+        public float damageScale;       // 0x60 host balance multiplier on stat damage
+        public float headshotMultiplier;// 0x64 weak point multiplier
+        public fixed uint reserved2[6]; // 0x68
+        public fixed float weapons[128];// 0x80 ErmcWeaponCoeff[64] as {k, proc} pairs
+    }                                   // 0x280
 
     /// <summary>Optional guest -> host requests (protocol/c/bridge_protocol_ext.h).</summary>
     [StructLayout(LayoutKind.Sequential, Pack = 4)]

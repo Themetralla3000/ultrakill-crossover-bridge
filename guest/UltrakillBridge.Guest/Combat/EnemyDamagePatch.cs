@@ -1,5 +1,6 @@
 using System;
 using HarmonyLib;
+using UltrakillBridge.Link;
 using UnityEngine;
 
 namespace UltrakillBridge.Guest.Combat
@@ -32,7 +33,7 @@ namespace UltrakillBridge.Guest.Combat
             try
             {
                 Apply(proxy, __instance, target, hitPoint, multiplier, critMultiplier, sourceWeapon,
-                    ignoreTotalDamageTakenMultiplier, fromExplosion);
+                    ignoreTotalDamageTakenMultiplier, fromExplosion, tryForExplode);
             }
             catch (Exception e)
             {
@@ -47,7 +48,7 @@ namespace UltrakillBridge.Guest.Combat
 
         private static void Apply(EnemyProxy proxy, EnemyIdentifier eid, GameObject target, Vector3 hitPoint,
             float multiplier, float critMultiplier, GameObject sourceWeapon, bool ignoreTotalDamageTakenMultiplier,
-            bool fromExplosion)
+            bool fromExplosion, bool tryForExplode)
         {
             // Like the original, the damage list of attributes never outlives a call.
             try
@@ -72,10 +73,33 @@ namespace UltrakillBridge.Guest.Combat
                 Vector3 point = hitPoint == Vector3.zero ? target.transform.position : hitPoint;
                 string hitter = eid.hitter ?? "";
 
+                // --- which weapon, weak point, shot (stat damage wire; the hit log wants it in any mode) ---
+                bool weakpoint = head && limbMultiplier * critMultiplier > 0f;
+                int weaponId = WeaponId.Fallback, kind = HitKind.Direct, shotSeq = 0;
+                string sourceType = "", lastWeapon = "";
+                int variation = -1;
+                ResolveSource(sourceWeapon, out sourceType, out variation);
+                lastWeapon = eid.hitterWeapons != null && eid.hitterWeapons.Count > 0 ? eid.hitterWeapons[eid.hitterWeapons.Count - 1] : "";
+                weaponId = WeaponClassifier.Classify(hitter, lastWeapon, sourceType, variation, tryForExplode, fromExplosion, out kind);
+                shotSeq = ShotTracker.Current(weaponId);
+                if (BridgeConfig.HitLog.Value)
+                {
+                    HitLog.Record(hitter, lastWeapon, sourceWeapon != null ? sourceWeapon.name : "", sourceType, variation, weaponId,
+                        proxy.HostId, multiplier, critMultiplier, hitLimb, weakpoint, fromExplosion, tryForExplode, shotSeq, kind, damage);
+                }
+
                 // --- health, host forwarding ---
-                if (!eid.blessed) eid.health -= damage;
+                // Stat wire: the host damage is bodyDamage * k * uk (its own maths), so the local health follows that
+                // prediction; the legacy wire removes the same fraction of max HP the host will remove.
+                float fraction = damage / Mathf.Max(proxy.UkMax, 0.01f);
+                if (StatMode.Active && proxy.HostMaxHp > 0f)
+                {
+                    float host = StatMode.PredictHostDamage(weaponId, multiplier, weakpoint);
+                    if (host > 0f && !float.IsInfinity(host)) fraction = host / proxy.HostMaxHp;
+                }
+                if (!eid.blessed) eid.health -= fraction * Mathf.Max(proxy.UkMax, 0.01f);
                 bool killed = eid.health <= 0f;
-                proxy.AddDamage(damage / Mathf.Max(proxy.UkMax, 0.01f), point);
+                proxy.AddHit(damage / Mathf.Max(proxy.UkMax, 0.01f), weaponId, multiplier, weakpoint, shotSeq, kind, point);
 
                 // --- blood (V1 heals from it) ---
                 SpawnBlood(proxy, eid, target, point, damage, hitter, killed, fromExplosion);
@@ -99,6 +123,20 @@ namespace UltrakillBridge.Guest.Combat
             {
                 eid.hitterAttributes.Clear();
             }
+        }
+
+        /// <summary>Type name and variation of the weapon component on a hit's sourceWeapon ("" / -1 when none).</summary>
+        private static void ResolveSource(GameObject src, out string type, out int variation)
+        {
+            type = ""; variation = -1;
+            if (src == null) return;
+            if (src.TryGetComponent(out Revolver rev)) { type = "Revolver"; variation = rev.gunVariation; }
+            else if (src.TryGetComponent(out Shotgun sho)) { type = "Shotgun"; variation = sho.variation; }
+            else if (src.TryGetComponent(out Nailgun nai)) { type = "Nailgun"; variation = nai.variation; }
+            else if (src.TryGetComponent(out Railcannon rai)) { type = "Railcannon"; variation = rai.variation; }
+            else if (src.TryGetComponent(out RocketLauncher rock)) { type = "RocketLauncher"; variation = rock.variation; }
+            else if (src.TryGetComponent(out ShotgunHammer ham)) { type = "ShotgunHammer"; variation = ham.variation; }
+            else if (src.TryGetComponent(out Punch _)) { type = "Punch"; }
         }
 
         /// <summary>Enemy.HandleBloodSelection + ProcessBloodEffects for a non-Statue, non-Sisyphus enemy.</summary>

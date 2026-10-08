@@ -57,6 +57,8 @@ Bridge folder resolution (guest, fake host, host SDK): `UKBRIDGE_DIR`, else `ERM
 | General | `TargetFrameRate` | 120 | ULTRAKILL's frame cap while bridged (vSync is turned off). Match it to the host's. -1 = uncapped. |
 | Combat | `HostHpPerUkHp` | 60 | Host HP per point of ULTRAKILL enemy health. Lower = enemies die faster. |
 | Combat | `HostDamageScale` | 1 | Multiplier for the damage V1 takes from host hits: `share * 100 * scale`. |
+| Combat | `StatDamage` | true | Use the stat damage wire when the host advertises it (`HostFlagStatDamage`): raw ULTRAKILL damage + weapon id + hit count + shot sequence, so the host applies its own damage, crit and proc maths (protocol.md 6.2.1). Off, or a host without it (Elden Ring): damage is sent as a fraction of the enemy's max HP, as before. |
+| Combat | `HitLog` | false | Measurement probe: append every hit on a host enemy to `<bridge dir>\hitlog.csv` (time, hitter, weapon id, multipliers, head/limb, shot sequence...), buffered. Summarise per weapon (hits/s, damage per hit, UK DPS) with `scripts\hitlog-summary.ps1`. Does not change behaviour. |
 | Combat | `SolidEnemies` | false | Host enemies block V1 and can be stood on (proxy hitboxes on layer 11 instead of 10). |
 | Rendering | `Composite` | true | Send V1's viewmodel, effects and HUD to the host to be drawn into its frame. |
 | Rendering | `InputOverlay` | true | Glue ULTRAKILL's window, nearly transparent, on top of the host window so it receives the keyboard and mouse. |
@@ -126,6 +128,7 @@ Cost: one extra world render (the world camera sees only projectiles and effects
 | `<guest dir>\BepInEx\LogOutput.log` | Guest log: attach, zone anchors, recalls, drive/release transitions, window mode, each failure once |
 | `<guest dir>\BepInEx\config\dev.ukbridge.guest.cfg` | Configuration |
 | `<bridge dir>\bridge.shm`, `frames.shm` | The shared files |
+| `<bridge dir>\hitlog.csv` | Hit log (only with `[Combat] HitLog = true`); summarise with `scripts\hitlog-summary.ps1` |
 | `<bridge dir>\terrain-cache\<zone>\*.bin` | Persistent terrain cache, one folder per zone (delete to clear) |
 | `%USERPROFILE%\AppData\LocalLow\New Blood Interactive\ULTRAKILL\Player.log` | Unity's own log |
 

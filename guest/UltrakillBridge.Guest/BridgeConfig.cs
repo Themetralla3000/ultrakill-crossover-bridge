@@ -17,6 +17,8 @@ namespace UltrakillBridge.Guest
         public static ConfigEntry<float> HostHpPerUkHp;
         public static ConfigEntry<float> HostDamageScale;
         public static ConfigEntry<bool> SolidEnemies;
+        public static ConfigEntry<bool> StatDamage;
+        public static ConfigEntry<bool> HitLog;
 
         // Rendering / window
         public static ConfigEntry<bool> Composite;
@@ -69,6 +71,10 @@ namespace UltrakillBridge.Guest
                 "How many host HP one point of ULTRAKILL enemy health is worth (a 221 HP soldier ~ 3.7 UK HP, like a Stray).");
             HostDamageScale = cfg.Bind("Combat", "HostDamageScale", 1f,
                 "Damage V1 takes when the stand-in loses a share of its max HP: share * 100 * scale.");
+            StatDamage = cfg.Bind("Combat", "StatDamage", true,
+                "Use the stat damage wire when the host offers it (it advertises HostStatDamage): raw ULTRAKILL damage + weapon id + hit count + shot sequence, so the host can apply its own damage/crit/proc maths. Off (or a host without it, e.g. Elden Ring): damage is sent as a fraction of the enemy's max HP.");
+            HitLog = cfg.Bind("Combat", "HitLog", false,
+                "Measurement probe: append every hit on a host enemy to <bridge dir>/hitlog.csv (time, hitter, weapon, multipliers, head/limb, shot sequence...). Summarise with scripts/hitlog-summary.ps1. Does not change behaviour.");
             SolidEnemies = cfg.Bind("Combat", "SolidEnemies", false,
                 "Host enemies block V1 and can be stood on (proxy hitboxes on layer 11 instead of 10).");
 

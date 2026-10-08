@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Stat damage model and hit log (combat phases a and b).** Optional protocol extension for hosts with their own damage
+  maths. New host capability `HostFlagStatDamage` (`ErmcHostEvents.flags` bit 2) and new optional host -> guest block
+  `ErmcHostCombat` at `0x361000` (`UKCB`: the character's damage/crit stats and a `{k, proc}` table per weapon id).
+  While the host advertises it the guest sends *stat entries* in the damage ring: `amount` = raw ULTRAKILL damage,
+  `flags` STAT/WEAKPOINT/EXPLOSION/FRACTION (bits 4..7), `reserved` = weapon id (28 ids, `WeaponId`), hit count, shot
+  sequence and hit kind (`StatWire`). The guest classifies hits from `eid.hitter`, `sourceWeapon` (type + variation),
+  `tryForExplode` and `hitterWeapons`, counts shots with prefixes on the weapons' fire methods, aggregates hits per
+  (weapon, head, shot, kind) and predicts the host's damage for the local enemy health. Without the bit (Elden Ring) the
+  wire is byte-identical to before. Config `[Combat] StatDamage = true`. Host SDK: `HostLink.WriteHostCombat`,
+  `WeaponTable` (defaults from the combat design, per-weapon rows to override), `ProcBudget`; protocol library:
+  `StatWire`, `ShotRollCache`, `GuestLink.PushDamage(..., reserved)`, `GuestLink.ReadHostCombat`. Fake host: stat path
+  with a fake body (damage 12, crit 10 %), per-weapon damage / hits / procs per second in the overlay, `T` toggles.
+  Tests: layout, packing and round trip, proc budget maths, crit-per-shot grouping, hit classification.
+- **Hit log probe.** `[Combat] HitLog = true` appends every proxy hit to `<bridge dir>/hitlog.csv`;
+  `scripts/hitlog-summary.ps1` computes per weapon hits/s, damage per hit, hits per shot and UK DPS, to replace the
+  design table's estimates.
+
 - **Native-feeling interactions.** `ErmcHostEvents.flags` is now defined: `HostDrawsPrompt` (the guest hides its own
   `[V] Open` label, config `[Interaction] ShowGuestPrompt = Auto|true|false`) and `HostNeedsInput` (a host menu needs
   the mouse: the guest enters host mode like F8 and returns when the flag clears; `[Interaction] AutoHostInput`).

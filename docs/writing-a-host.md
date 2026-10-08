@@ -106,6 +106,7 @@ Test: V1 stands and walks on your ground. F9 in ULTRAKILL shows the terrain stat
 
 1. Each ALIVE frame publish the hostile characters near the player (reference: within 80 m, up to 256) with `HostLink.PublishEntities`: stable `id` (an object handle; ids must not alias across zones), `kind` (`1` large, `2` small, `3` other/non-hostile), `pos` (feet), a world-aligned box `boxCenter/boxHalf` (centre at `feet + height/2`, half extents `radius, height/2, radius`), `hp`, `maxHp`, name, and `flags` bit0 = dead, bit1 = box is world-aligned. Set `count = 0` when not ALIVE.
 2. Consume the guest's damage ring (`HostLink.DrainDamage`). Entry: `id`, `amount` (float), `hitPos`, `flags`. Validate: `id` must be an entity you published last frame, `0 < amount < 10000`, target hostile and alive. Convert `amount` to your damage as in [5.6](#56-damage-amount-and-how-to-invert-it) and apply it **as a hit from the player** so kill credit, XP and aggro work.
+   *Stat damage (optional, for hosts with their own damage model):* publish `HostLink.WriteHostCombat(...)` (the character's damage stat, crit, and the per-weapon `k`/`proc` table from `WeaponTable`), then set `Protocol.HostFlagStatDamage` in `WriteHostEvents`. The guest then sends `amount` = raw ULTRAKILL damage with the weapon id, hit count and shot sequence in `reserved` ([protocol.md 6.2.1](protocol.md#621-stat-damage-entries-optional-extension)). Apply `bodyDamage * scale * k[weapon] * amount` (x weak point multiplier), roll crit once per `(weapon, shot sequence)` with `ShotRollCache`, and use `ProcBudget.Entry(proc[weapon], hitCount, cap)` as the proc coefficient. Entries with the `FRACTION` flag (parry) keep the legacy conversion. A host that never sets the bit keeps the fraction encoding unchanged.
 3. `id == 0` with `WORLD_RAY` is a "strike the world" request (breakable props); implement or ignore it.
 
 Test: enemy proxies appear in ULTRAKILL (F9 shows the counts); shooting them in ULTRAKILL hurts the real enemies, and they die with your game's death handling.
@@ -239,6 +240,8 @@ dotnet build UltrakillBridge.sln -c Release
 To test **your host against the real guest**: start your game with the bridge folder set (both `UKBRIDGE_DIR` and `ERMC_DIR`, or `scripts/Launch-Guest.ps1 -BridgeDir <your folder>` for the guest side), then `.\scripts\Launch-Guest.ps1 -BridgeDir <folder>`.
 
 Weapon progression in the fake host: it requests `Progression` by default; press `B` (or the panel button) to count a boss defeated, `N` for a new run (new seed, counters to 0), `M` to cycle the requested mode (guest / all / progression).
+
+Stat damage in the fake host: it advertises the capability by default (`T` or the panel button toggles it) with a fake character (damage 12, crit 10 % x2), applies `damage * k * amount`, rolls crit per shot, and lists damage, hits and procs per second per weapon over the last 5 s in its overlay. Turn on `[Combat] HitLog` in the guest to record the same hits to `hitlog.csv`.
 
 Diagnostics in ULTRAKILL:
 

@@ -254,6 +254,27 @@ namespace UltrakillBridge.Link
             return false;
         }
 
+        /// <summary>
+        /// Seqlocked read of the optional host combat block (stats + per-weapon coefficients). False when the host never
+        /// wrote it (magic/version absent) or the read could not be made consistent.
+        /// </summary>
+        public bool ReadHostCombat(out ErmcHostCombat c)
+        {
+            c = default;
+            if (_b == null) return false;
+            var p = (ErmcHostCombat*)(_b + Protocol.OffHostCombat);
+            for (int tries = 0; tries < 2000; tries++)
+            {
+                uint s1 = Volatile.Read(ref p->seq);
+                if ((s1 & 1) != 0) { Thread.SpinWait(1); continue; }
+                c = *p;
+                Thread.MemoryBarrier();
+                if (Volatile.Read(ref p->seq) == s1)
+                    return c.magic == Protocol.HostCombatMagic && c.version == Protocol.HostCombatVersion;
+            }
+            return false;
+        }
+
         // ---- guest requests (optional, ErmcGuestRequests) -------------------------------------------
 
         private uint _reqEquipment, _reqPing, _reqHeld;
@@ -340,7 +361,14 @@ namespace UltrakillBridge.Link
         }
 
         /// <summary>Queues a hit for the host to apply. False if the ring is full.</summary>
-        public bool PushDamage(ulong id, float amount, float x, float y, float z, uint flags)
+        public bool PushDamage(ulong id, float amount, float x, float y, float z, uint flags) =>
+            PushDamage(id, amount, x, y, z, flags, 0u);
+
+        /// <summary>
+        /// Queues a hit with the <c>reserved</c> word (stat damage extension, see <see cref="StatWire"/>). Only set
+        /// <paramref name="reserved"/> when the host advertised <see cref="Protocol.HostFlagStatDamage"/>.
+        /// </summary>
+        public bool PushDamage(ulong id, float amount, float x, float y, float z, uint flags, uint reserved)
         {
             if (_b == null) return false;
             var q = (ErmcDamageQueueHeader*)(_b + Protocol.OffDamage);
@@ -352,7 +380,7 @@ namespace UltrakillBridge.Link
             e->amount = amount;
             e->hitPos[0] = x; e->hitPos[1] = y; e->hitPos[2] = z;
             e->flags = flags;
-            e->reserved = 0;
+            e->reserved = reserved;
             Thread.MemoryBarrier();
             Volatile.Write(ref q->write, write + 1);
             return true;

@@ -65,9 +65,12 @@ namespace UltrakillBridge.Guest.Combat
             $"{_entityCount} entities, {_list.Count} proxies, {_hitsSent} hits sent" +
             (_hitsSent > 0 ? $", last {_lastAmount:F1} -> {_lastName}" : "");
 
-        public void Tick(GuestLink link, CoordMap map)
+        public void Tick(GuestLink link, CoordMap map, uint hostFlags = 0)
         {
             if (link == null || map == null) return;
+            StatMode.Update(link, hostFlags);
+            ShotTracker.NextTick();
+            HitLog.Flush(false);
             Active = this;
             LastMap = map;
             float now = Time.unscaledTime;
@@ -98,6 +101,7 @@ namespace UltrakillBridge.Guest.Combat
             _byId.Clear();
             _entityCount = 0;
             _createRetryAt.Clear();
+            HitLog.Flush(true);
             if (Active == this) Active = null;
         }
 
@@ -295,25 +299,63 @@ namespace UltrakillBridge.Guest.Combat
         // ---- damage -------------------------------------------------------------------------
 
         /// <summary>
-        /// Sends the damage accumulated since the last flush as one ring entry. The host applies
-        /// ceil(amount * maxHp / mcHealth); sending fraction * mcHealth removes exactly that fraction of max HP.
+        /// Sends the damage accumulated since the last flush. Legacy wire: one ring entry, the host applies
+        /// ceil(amount * maxHp / mcHealth), so fraction * mcHealth removes exactly that fraction of max HP.
+        /// Stat wire: one entry per (weapon, weak point, shot, kind) with the raw ULTRAKILL damage (protocol.md 6.2.1);
+        /// a parry still goes as a fraction. Both encodings are accumulated; whichever is not sent is dropped.
         /// </summary>
         private void Flush(EnemyProxy p, GuestLink link, CoordMap map)
         {
-            if (p == null || !(p.PendingFraction > 0f)) return;
-            if (p.HostMaxHp <= 0f) { p.PendingFraction = 0f; return; }
-            float mc = Mathf.Clamp(20f * Mathf.Sqrt(p.HostMaxHp / 100f), 10f, 300f);
-            float amount = Mathf.Min(p.PendingFraction * mc, 9999f);
-            if (!(amount > 0f)) { p.PendingFraction = 0f; return; }
+            if (p == null) return;
+            if (p.PendingFraction <= 0f && p.Stat.Count == 0) return;
+            if (p.HostMaxHp <= 0f) { p.PendingFraction = 0f; p.PendingParry = 0f; p.Stat.Clear(); return; }
             Vector3 hit = map.ToHost(p.PendingHitUk);
-            if (link.PushDamage(p.HostId, amount, hit.x, hit.y, hit.z, 0))
+            float mc = Mathf.Clamp(20f * Mathf.Sqrt(p.HostMaxHp / 100f), 10f, 300f);
+
+            if (!StatMode.Active)
             {
-                p.PendingFraction = 0f;
-                _hitsSent++;
-                _lastAmount = amount;
-                _lastName = p.ModelName;
+                p.Stat.Clear();
+                float amount = Mathf.Min(p.PendingFraction * mc, 9999f);
+                if (!(amount > 0f)) { p.PendingFraction = 0f; p.PendingParry = 0f; return; }
+                if (link.PushDamage(p.HostId, amount, hit.x, hit.y, hit.z, 0))
+                {
+                    p.PendingFraction = 0f;
+                    p.PendingParry = 0f;
+                    NoteSent(amount, p);
+                }
+                // ring full: keep it pending for the next tick
+                return;
             }
-            // ring full: keep it pending for the next tick
+
+            int sent = 0;
+            for (int i = 0; i < p.Stat.Count; i++)
+            {
+                StatEntry e = p.Stat[i];
+                uint flags = StatWire.Flags(e.Head, e.Kind == HitKind.Area);
+                uint reserved = StatWire.Pack(e.Weapon, e.Count, e.ShotSeq, e.Kind);
+                if (!link.PushDamage(p.HostId, Mathf.Min(e.Uk, 9999f), hit.x, hit.y, hit.z, flags, reserved)) break; // ring full: rest stays pending
+                sent++;
+                NoteSent(e.Uk, p);
+            }
+            p.Stat.RemoveFirst(sent);
+            if (p.Stat.Count > 0) return;
+            p.PendingFraction = 0f;
+            if (p.PendingParry > 0f)
+            {
+                float amount = Mathf.Min(p.PendingParry * mc, 9999f);
+                if (amount > 0f && !link.PushDamage(p.HostId, amount, hit.x, hit.y, hit.z,
+                        StatWire.Flags(false, false, fraction: true), StatWire.Pack(WeaponId.Parry, 1, ShotTracker.Current(WeaponId.Parry), HitKind.Melee)))
+                    return;
+                p.PendingParry = 0f;
+                NoteSent(amount, p);
+            }
+        }
+
+        private void NoteSent(float amount, EnemyProxy p)
+        {
+            _hitsSent++;
+            _lastAmount = amount;
+            _lastName = p.ModelName;
         }
 
         // ---- helpers ------------------------------------------------------------------------

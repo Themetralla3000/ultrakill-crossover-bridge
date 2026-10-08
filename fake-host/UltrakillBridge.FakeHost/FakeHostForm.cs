@@ -124,6 +124,7 @@ public sealed unsafe class FakeHostForm : Form
             else if (e.KeyCode == Keys.M) _sim.CycleLoadoutMode();
             else if (e.KeyCode == Keys.P) _sim.ToggleDrawsPrompt();
             else if (e.KeyCode == Keys.I) _sim.ToggleNeedsInput();
+            else if (e.KeyCode == Keys.T) _sim.ToggleStatDamage();
         }
     }
 
@@ -298,6 +299,8 @@ public sealed unsafe class FakeHostForm : Form
         lines.Add($"RAYS  batches/s={_batchesPerSec:0.0} rays/s={_raysPerSec:0} total batches={_link.RayBatchesServed} pending={_link.RayBatchPending}");
         lines.Add($"DMG   events={_sim.DamageEvents} pendingRing={_link.PendingDamage} dropped={_link.DamageDropped}  hunter hits={_sim.HunterHits}");
         lines.Add($"      last: {_sim.LastDamage}");
+        lines.Add($"STAT  {(_sim.StatDamage ? "on" : "off")} [T]  body dmg {_sim.BodyDamage:0.#} crit {_sim.CritPercent:0}% x{_sim.CritMultiplier:0.#}  (5 s window per weapon)");
+        foreach (string wl in _sim.WeaponRates(_sim.NowMs)) lines.Add(wl);
         lines.Add($"RUN   loadoutMode={_sim.LoadoutMode} seed={_sim.RunSeed} bosses={_sim.Bosses} stages={_sim.Stages}  [B] boss [N] new run [M] mode");
         lines.Add($"CAPS  drawsPrompt={_sim.DrawsPrompt} needsInput={_sim.NeedsInput}  [P] native prompt [I] menu open   guest: interactKey='{_sim.GuestInteractKey}' held={_sim.GuestHeld:X} equipment={_sim.EquipmentUses} pings={_sim.Pings}");
         if (_sim.DrawsPrompt && _sim.NearDoor && _sim.StoodIn) lines.Add($"      (native prompt) [{_sim.GuestInteractKey}] {(_sim.World.DoorOpen ? "Close" : "Open")}");

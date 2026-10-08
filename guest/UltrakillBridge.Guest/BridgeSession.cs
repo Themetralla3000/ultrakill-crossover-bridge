@@ -222,7 +222,7 @@ namespace UltrakillBridge.Guest
             if (Map != null && hostAlive && nm != null && !_recallPending)
             {
                 Guard("terrain", () => _terrain.Tick(Link, Map, V1.Feet(nm), nm.rb.velocity));
-                if (Link.NowMs - _mapCreatedMs >= ZoneSettleMs) Guard("enemies", () => _enemies.Tick(Link, Map));
+                if (Link.NowMs - _mapCreatedMs >= ZoneSettleMs) Guard("enemies", () => _enemies.Tick(Link, Map, _hostFlags));
                 Guard("ground hold", () => HoldForGround(nm));
             }
 

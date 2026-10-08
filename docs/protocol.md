@@ -94,6 +94,7 @@ There is no ownership field: the protocol assumes exactly one guest process. Two
 | 0x350000 | `ErmcCollisionControl` (0x30) | (guest, unimplemented) | section 5.2 |
 | 0x360000 | `ErmcHostEvents` (0x60) | host (optional) | seqlock, section 8.1; extension, `protocol/c/bridge_protocol_ext.h` |
 | 0x360100 | `ErmcGuestRequests` (0x30) | guest (optional) | seqlock, section 8.2; extension, `protocol/c/bridge_protocol_ext.h` |
+| 0x361000 | `ErmcHostCombat` (0x280) | host (optional) | seqlock, section 8.3; goes with the `HOSTFLAG_STAT_DAMAGE` bit, section 6.2.1 |
 
 Struct packing: everything after `#pragma pack(push, 4)` packs to 4; the earlier structs (contacts, collision control, platform) are plain 4-byte-field structs, so their offsets are the same.
 
@@ -435,6 +436,24 @@ Examples: maxHp 100 -> mcHealth 20 -> 1 point = 5 HP; maxHp 221 (soldier) -> 29.
 
 Flags: `CRITICAL (1<<0)` only appears in the host log - no damage multiplier; `OUTWARD (1<<1)` **not read by the host source** (comment mentions a slinger shot, MH:World legacy); `NOT_BY_PLAYER (1<<2)` skips kill credit/aggro/poke (use for guest-world environmental or friendly-fire-ish damage); `WORLD_RAY (1<<3)` only with `id == 0`.
 
+#### 6.2.1 Stat damage entries (optional extension)
+
+A host that wants to apply its own damage maths (Risk of Rain 2: `body.damage`, crit, proc coefficients) sets `HOSTFLAG_STAT_DAMAGE` (`1<<2`, `Protocol.HostFlagStatDamage`) in `ErmcHostEvents.flags` **after** it has published the `ErmcHostCombat` block (section 8.3). While the bit is set, that block is valid and `[Combat] StatDamage` is on, the guest sends *stat entries* instead of fractions; otherwise it keeps the encoding above, byte for byte (the Elden Ring host never sees the new bits). `ErmcDamage` is still 0x20 bytes; the stat entry uses `flags` bits >= 4 and `reserved`:
+
+| Field | STAT entry |
+| --- | --- |
+| `amount` | **sum of ULTRAKILL base damage** (UK units) of the aggregated hits, *before* any head or crit bonus. A revolver body shot is 1.0, a coin chain raises it, a pellet is about 0.75 |
+| `flags` | `bit4 STAT` (set), `bit5 WEAKPOINT` at least one hit was a head hit (the base damage does not include ULTRAKILL's own head bonus; the host applies its weak-point rule), `bit6 EXPLOSION` area hit, `bit7 FRACTION` the legacy semantics for this one entry (`amount = fraction * mcHealth`; used for the parry). `CRITICAL` is never set: crit is the host's roll |
+| `reserved` bits 0..5 | weapon id (table below; 0 and 63 = unknown) |
+| `reserved` bits 8..15 | hit count 1..255 aggregated in the entry |
+| `reserved` bits 16..23 | shot sequence (wraps): equal for every hit of one trigger pull (all pellets, the point blank zone, a ricocheting beam). Hosts key crit rolls on `(weapon id, shot sequence)`, so a shotgun blast crits once like RoR2's `BulletAttack` |
+| `reserved` bits 24..27 | hit kind: 0 direct, 1 area, 2 damage over time, 3 melee, 4 coin chain |
+| other bits | reserved, 0 |
+
+The guest writes one entry per (target, weapon id, weak point, shot sequence, hit kind) per tick. Host recipe (what the RoR2 host does): `damage = bodyDamage * damageScale * weapons[id].k * amount` (times `headshotMultiplier` on WEAKPOINT; crit is applied by the game's own pipeline from the roll), `procCoefficient = min(procCap, weapons[id].proc * hitCount)`, one `DamageInfo` per entry. `weapons[id]` is the table the host published in `ErmcHostCombat`; the guest also uses it to predict the damage for its local enemy health (`StatWire.HostDamage`). Unity-free helpers: `StatWire` (pack/unpack), `ShotRollCache` (one roll per shot), `WeaponTable` / `ProcBudget` in the host SDK (defaults and the proc budget maths).
+
+Weapon ids (`WeaponId`, `ERMC_WEAPON_*`): 1 REV_SHOT, 2 REV_PIERCER (charged beam), 3 REV_MARKSMAN, 4 COIN_HIT, 5 SHO_PELLET, 6 SHO_ZONE (point blank), 7 SHO_OVERCHARGE (Pump Charge), 8 SHO_GRENADE (Core Eject), 9 SHO_SAW, 10 HAMMER, 11 NAIL, 12 NAIL_BURST, 13 SAWBLADE, 14 ZAPPER, 15 RAIL_BEAM, 16 RAIL_MALICIOUS, 17 RAIL_HARPOON (harpoon/drill), 18 ROCKET, 19 CANNONBALL, 20 NAPALM, 21 PUNCH, 22 KNUCKLE, 23 WHIP, 24 SLAM, 25 PARRY (always a FRACTION entry), 26 EXPLOSION_OTHER, 27 FIRE_OTHER, 63 FALLBACK. The guest classifies a hit from `EnemyIdentifier.hitter`, the type and variation of `sourceWeapon`, `tryForExplode` (a charged revolver beam, a nail burst) and the last `hitterWeapons` entry. Measure the real rates with the hit log (`[Combat] HitLog`, `scripts/hitlog-summary.ps1`).
+
 Hit-test is the guest's job: use `boxCenter/boxHalf` as a world-aligned AABB in host coordinates (convert to the guest frame). The Minecraft proxy fixes the AABB bottom-centre at the feet and applies `+/- boxHalf` (`ErEntity.java:makeBoundingBox`).
 
 ### 6.3 Host -> guest damage (`OFF_HUNTER` 0xA00, `ErmcHunterEvents`, 0x30 B)
@@ -494,7 +513,7 @@ Defined in `protocol/c/bridge_protocol_ext.h` (a separate header; `bridge_protoc
 | 0x00 | `magic` | `0x56454B55` ("UKEV"), written last on the first publish |
 | 0x04 | `version` | 1 |
 | 0x08 | `seq` | seqlock (odd = writing) |
-| 0x0C | `flags` | `bit 0 HOSTFLAG_DRAWS_PROMPT`: the host draws its own interaction prompt (and key glyph), so the guest hides its HUD label (`[Interaction] ShowGuestPrompt = Auto`). `bit 1 HOSTFLAG_NEEDS_INPUT`: the host has UI that needs the mouse (item picker, scrapper...): the guest enters host mode (as F8 does) while the bit is set and takes control back when it clears; an F8 in the host while it is set is respected until the bit clears. Hosts that predate the bits write 0 |
+| 0x0C | `flags` | `bit 2 HOSTFLAG_STAT_DAMAGE`: the host understands stat damage entries and publishes `ErmcHostCombat` (sections 6.2.1 and 8.3). `bit 0 HOSTFLAG_DRAWS_PROMPT`: the host draws its own interaction prompt (and key glyph), so the guest hides its HUD label (`[Interaction] ShowGuestPrompt = Auto`). `bit 1 HOSTFLAG_NEEDS_INPUT`: the host has UI that needs the mouse (item picker, scrapper...): the guest enters host mode (as F8 does) while the bit is set and takes control back when it clears; an F8 in the host while it is set is respected until the bit clears. Hosts that predate the bits write 0 |
 | 0x10 | `loadoutMode` | 0 = guest decides, 1 = all weapons, 2 = progression |
 | 0x14 | `reserved0` | 0 |
 | 0x18 | `runSeed` (u64) | identifies the run. A change means "new run": the guest reshuffles and restarts the progression. Must be stable within a run |
@@ -520,6 +539,29 @@ Guest -> host, beyond the interact action (section 7, still `mcActionReq`). A ho
 Counters are monotonic u32: every difference from the host's last read is one request (compare with `!=`, baseline on the first read; a restarted guest continues from the value in memory). Both aim along the guest camera (`ErmcControl.camPos/camTarget`) and should be executed as the player's own input would be (respecting cooldowns and authority). Hold-to-repeat for interaction is done by the guest: while the interact key is held and the host still publishes a prompt, it issues a new `mcActionReq` every `[Interaction] RepeatIntervalMs` (250, Risk of Rain 2's own cadence) after the previous ack; the `held` bits are published for hosts that prefer native hold handling. `HostLink.ReadGuestRequests` / `HostLink.InteractKeyName`; guest side `GuestLink.RequestEquipment/RequestPing/SetHeldKeys/SetInteractKeyLabel/FlushGuestRequests`.
 
 ---
+
+### 8.3 Host combat block (optional extension, `OFF_HOST_COMBAT` 0x361000)
+
+Host -> guest, 0x280 bytes, only needed together with `HOSTFLAG_STAT_DAMAGE` (`ERMC_HOSTFLAG_STAT_DAMAGE`, bit 2 of `ErmcHostEvents.flags`, section 6.2.1). Publish it first, then set the bit. `HostLink` zeroes it when it initialises a fresh `bridge.shm`. `GuestLink.ReadHostCombat` returns false when the magic or version is absent.
+
+| Offset | Field | Meaning |
+| --- | --- | --- |
+| 0x00 | `magic` | `0x42434B55` ("UKCB"), written last on the first publish |
+| 0x04 | `version` | 1 |
+| 0x08 | `seq` | seqlock (odd = writing) |
+| 0x0C | `flags` | `bit 0 STATS_VALID`: the stats below are valid (the guest ignores the block otherwise) |
+| 0x10 | `level` | character level (informational) |
+| 0x14 | `damage` | the character's damage stat (RoR2 `body.damage`); the guest needs it to predict the host damage of its own hits. Must be > 0 |
+| 0x18 | `attackSpeedRatio` | reserved for later phases (0) |
+| 0x1C | `critPercent` | informational (the host rolls crit) |
+| 0x20 | `critMultiplier` | informational |
+| 0x24 | `reserved1[15]` | 0 (later: move speed, armor, hp, shield...) |
+| 0x60 | `damageScale` | host balance multiplier applied to stat damage |
+| 0x64 | `headshotMultiplier` | weak point multiplier (RoR2: 1.5) |
+| 0x68 | `reserved2[6]` | 0 |
+| 0x80 | `weapons[64]` | `{ float k; float proc; }` per weapon id: damage coefficient per UK point (as a multiple of `damage`) and procCoefficient per hit |
+
+`HostLink.WriteHostCombat(level, damage, critPercent, critMultiplier, damageScale, headshotMultiplier, k[], proc[])` only touches memory when something changed, so call it every frame (or at 20 Hz). Rebuild `k[]`/`proc[]` from `WeaponTable.Fill` whenever your balance config changes.
 
 ## 9. frames.shm in detail
 
@@ -689,6 +731,6 @@ For host authors who want to mirror the reference host: the camera override is a
 
 ## Appendix B. Quick offset reference
 
-bridge.shm: header 0x0, state 0x100, control 0x800, hunter events 0xA00, environment 0xB00, command mailbox 0x1000 (dev tools, ignored), command response 0x2000, rays 0x100000 (rays +0x20, hits +0x30020), entities 0x200000 (+0x10), damage 0x280000 (ring +0x10), passages 0x300000 (+0x10), platforms 0x310000 (+0x10), contacts 0x320000 (entries +0x28), collision control 0x350000, host events (optional) 0x360000, guest requests (optional) 0x360100.
+bridge.shm: header 0x0, state 0x100, control 0x800, hunter events 0xA00, environment 0xB00, command mailbox 0x1000 (dev tools, ignored), command response 0x2000, rays 0x100000 (rays +0x20, hits +0x30020), entities 0x200000 (+0x10), damage 0x280000 (ring +0x10), passages 0x300000 (+0x10), platforms 0x310000 (+0x10), contacts 0x320000 (entries +0x28), collision control 0x350000, host events (optional) 0x360000, guest requests (optional) 0x360100, host combat (optional) 0x361000.
 
 frames.shm: header 0x0 (GPU extension 0x40-0xDF, host-owned), slot i at `0x1000 + i*0x7E90100`, layers at `slot + 0x100 + i*(w*h*4)`.
