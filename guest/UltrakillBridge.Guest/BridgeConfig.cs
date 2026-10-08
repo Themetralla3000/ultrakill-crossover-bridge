@@ -54,6 +54,8 @@ namespace UltrakillBridge.Guest
         public static ConfigEntry<float> TerrainRadius;
         public static ConfigEntry<float> TerrainCell;
         public static ConfigEntry<float> TerrainStepHeight;
+        public static ConfigEntry<bool> VoidRescue;
+        public static ConfigEntry<float> VoidRescueDepth;
         public static ConfigEntry<bool> TerrainCache;
 
         // Loadout
@@ -166,6 +168,10 @@ namespace UltrakillBridge.Guest
             TerrainCell = cfg.Bind("Terrain", "CellSize", 0.5f, "Horizontal sampling resolution in metres.");
             TerrainStepHeight = cfg.Bind("Terrain", "StepHeight", 0.6f,
                 "Height difference (metres) between neighbouring samples that becomes a wall instead of a slope.");
+            VoidRescue = cfg.Bind("Terrain", "VoidRescue", true,
+                "Bring V1 back to the last ground it stood on when it falls far below it (a hole in the sampled terrain).");
+            VoidRescueDepth = cfg.Bind("Terrain", "VoidRescueDepth", 40f,
+                "Metres below the last ground before the void rescue triggers (after 1.5 s of falling that deep).");
             TerrainCache = cfg.Bind("Terrain", "PersistentCache", true,
                 "Keep every sampled terrain cell on disk (<bridge dir>/terrain-cache/<zone>/) so revisited areas have collision instantly; cached cells are re-validated in the background.");
 

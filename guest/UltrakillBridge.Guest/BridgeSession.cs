@@ -230,6 +230,7 @@ namespace UltrakillBridge.Guest
                 Guard("terrain", () => _terrain.Tick(Link, Map, V1.Feet(nm), nm.rb.velocity));
                 if (Link.NowMs - _mapCreatedMs >= ZoneSettleMs) Guard("enemies", () => _enemies.Tick(Link, Map, _hostFlags));
                 Guard("ground hold", () => HoldForGround(nm));
+                Guard("void rescue", () => VoidRescue(nm));
             }
 
             bool ready = hostAlive && Map != null && Map.Zone == _state.stageId && !_recallPending
@@ -382,6 +383,37 @@ namespace UltrakillBridge.Guest
         /// After a recall V1 hovers until host terrain under it has been sampled (the first ray batches take a few
         /// frames), standing on a small temporary floor like Minecraft Ring's guest does.
         /// </summary>
+        // ---- void rescue ------------------------------------------------------------------------
+        // The host's own out-of-bounds rescue may be disabled for the stand-in (RoR2 kept re-settling it), so a V1 that
+        // drops through a hole in the sampled terrain would fall forever, dragging the stand-in along. Remember the last
+        // place V1 stood and bring it back there when it falls far below it for a while.
+        private Vector3 _lastSafeFeet;
+        private bool _haveSafe;
+        private long _fallingSinceMs = long.MinValue;
+
+        private void VoidRescue(NewMovement nm)
+        {
+            if (!BridgeConfig.VoidRescue.Value || _holdingForGround || nm.dead || !Driving) { _fallingSinceMs = long.MinValue; return; }
+            Vector3 feet = V1.Feet(nm);
+            long now = Link.NowMs;
+            if (V1.Grounded(nm))
+            {
+                _lastSafeFeet = feet;
+                _haveSafe = true;
+                _fallingSinceMs = long.MinValue;
+                return;
+            }
+            if (!_haveSafe) return;
+            float drop = Map.ToHostLength(_lastSafeFeet.y - feet.y);
+            if (drop < BridgeConfig.VoidRescueDepth.Value) { _fallingSinceMs = long.MinValue; return; }
+            if (_fallingSinceMs == long.MinValue) { _fallingSinceMs = now; return; }
+            if (now - _fallingSinceMs < 1500) return;
+            Plugin.Log.LogWarning($"Void rescue: V1 fell {drop:F0} m below the last ground; moving it back.");
+            V1.Teleport(_lastSafeFeet + Vector3.up * 0.5f, nm.cc != null ? nm.cc.rotationY : 0f, revive: false);
+            _fallingSinceMs = long.MinValue;
+            _terrain.Invalidate(_lastSafeFeet, Map.ToUkLength(6f));
+        }
+
         private void HoldForGround(NewMovement nm)
         {
             if (!_holdingForGround) return;
