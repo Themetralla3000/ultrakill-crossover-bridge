@@ -50,6 +50,11 @@ namespace UltrakillBridge.Link
         /// <see cref="ErmcGuestRequests.combatFlags"/>. Without it V1 keeps its own 100 HP.
         /// </summary>
         public const uint HostFlagOwnsHealth = 1u << 3;
+        /// <summary>
+        /// The host publishes RoR2-style stat ratios (attack speed, movement speed, extra jumps, jump power, sprint, recharge
+        /// rates) in ErmcHostCombat (flag <see cref="CombatRatiosValid"/>) and the guest applies them to V1 (see StatsWire).
+        /// </summary>
+        public const uint HostFlagStats = 1u << 4;
         /// <summary>Optional ErmcHostCombat block (bridge_protocol_ext.h), host -> guest: stats and the per-weapon table.</summary>
         public const int OffHostCombat = 0x361000;
         public const uint HostCombatMagic = 0x42434B55u; // "UKCB"
@@ -61,6 +66,8 @@ namespace UltrakillBridge.Link
         public const uint CombatHealthValid = 1u << 1;
         /// <summary>ErmcHostCombat.flags: the host decided the character is dead (a lethal hit it intercepted, or a real death).</summary>
         public const uint CombatDead = 1u << 2;
+        /// <summary>ErmcHostCombat.flags: attackSpeedRatio, moveSpeedRatio, extraJumps, jumpPowerRatio, sprintSpeedRatio and the recharge ratios are valid.</summary>
+        public const uint CombatRatiosValid = 1u << 3;
         /// <summary>ErmcHunterEvents.lastHitKind bit: the hit was rejected host-side because the guest's parry window was open (kind in the low byte).</summary>
         public const uint HunterKindParried = 1u << 8;
         /// <summary>ErmcGuestRequests.extFlags: the combat fields (combatFlags, healMilli, punchSeq) are valid.</summary>
@@ -386,7 +393,7 @@ namespace UltrakillBridge.Link
         public uint flags;              // 0x0C
         public uint level;              // 0x10
         public float damage;            // 0x14 body.damage
-        public float attackSpeedRatio;  // 0x18 (reserved for later phases)
+        public float attackSpeedRatio;  // 0x18 stat ratio (valid with CombatRatiosValid)
         public float critPercent;       // 0x1C body.crit
         public float critMultiplier;    // 0x20 body.critMultiplier
         public float health;            // 0x24 HealthComponent.health (valid with CombatHealthValid)
@@ -395,7 +402,14 @@ namespace UltrakillBridge.Link
         public float fullShield;        // 0x30
         public float barrier;           // 0x34
         public float cursePenalty;      // 0x38 information only (maxHealth already reduced)
-        public fixed float reserved1[9]; // 0x3C..0x5F (moveRatio, armor, ... for later phases)
+        public float moveSpeedRatio;    // 0x3C stat ratios (valid with CombatRatiosValid), see StatsWire
+        public uint extraJumps;         // 0x40 maxJumpCount - baseJumpCount
+        public float jumpPowerRatio;    // 0x44
+        public float sprintSpeedRatio;  // 0x48
+        public float rechargeSecondary; // 0x4C 1 / cooldownScale of the secondary skill
+        public float rechargeSpecial;   // 0x50
+        public float rechargeUtility;   // 0x54
+        public fixed float reserved1[2];// 0x58..0x5F
         public float damageScale;       // 0x60 host balance multiplier on stat damage
         public float headshotMultiplier;// 0x64 weak point multiplier
         public fixed uint reserved2[6]; // 0x68

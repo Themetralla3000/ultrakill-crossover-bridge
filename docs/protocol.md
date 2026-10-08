@@ -513,7 +513,7 @@ Defined in `protocol/c/bridge_protocol_ext.h` (a separate header; `bridge_protoc
 | 0x00 | `magic` | `0x56454B55` ("UKEV"), written last on the first publish |
 | 0x04 | `version` | 1 |
 | 0x08 | `seq` | seqlock (odd = writing) |
-| 0x0C | `flags` | `bit 2 HOSTFLAG_STAT_DAMAGE`: the host understands stat damage entries and publishes `ErmcHostCombat` (sections 6.2.1 and 8.3). `bit 3 HOSTFLAG_OWNS_HEALTH`: the host owns the player's health (section 8.4). `bit 0 HOSTFLAG_DRAWS_PROMPT`: the host draws its own interaction prompt (and key glyph), so the guest hides its HUD label (`[Interaction] ShowGuestPrompt = Auto`). `bit 1 HOSTFLAG_NEEDS_INPUT`: the host has UI that needs the mouse (item picker, scrapper...): the guest enters host mode (as F8 does) while the bit is set and takes control back when it clears; an F8 in the host while it is set is respected until the bit clears. Hosts that predate the bits write 0 |
+| 0x0C | `flags` | `bit 4 HOSTFLAG_STATS`: the host publishes RoR2-style stat ratios and the guest applies them to V1 (section 8.5). `bit 2 HOSTFLAG_STAT_DAMAGE`: the host understands stat damage entries and publishes `ErmcHostCombat` (sections 6.2.1 and 8.3). `bit 3 HOSTFLAG_OWNS_HEALTH`: the host owns the player's health (section 8.4). `bit 0 HOSTFLAG_DRAWS_PROMPT`: the host draws its own interaction prompt (and key glyph), so the guest hides its HUD label (`[Interaction] ShowGuestPrompt = Auto`). `bit 1 HOSTFLAG_NEEDS_INPUT`: the host has UI that needs the mouse (item picker, scrapper...): the guest enters host mode (as F8 does) while the bit is set and takes control back when it clears; an F8 in the host while it is set is respected until the bit clears. Hosts that predate the bits write 0 |
 | 0x10 | `loadoutMode` | 0 = guest decides, 1 = all weapons, 2 = progression |
 | 0x14 | `reserved0` | 0 |
 | 0x18 | `runSeed` (u64) | identifies the run. A change means "new run": the guest reshuffles and restarts the progression. Must be stable within a run |
@@ -554,10 +554,10 @@ Host -> guest, 0x280 bytes, only needed together with `HOSTFLAG_STAT_DAMAGE` (`E
 | 0x00 | `magic` | `0x42434B55` ("UKCB"), written last on the first publish |
 | 0x04 | `version` | 1 |
 | 0x08 | `seq` | seqlock (odd = writing) |
-| 0x0C | `flags` | `bit 0 STATS_VALID`: the stats below are valid (the guest ignores the block otherwise). `bit 1 HEALTH_VALID`: the health fields are valid (section 8.4). `bit 2 DEAD`: the host decided the character is dead |
+| 0x0C | `flags` | `bit 0 STATS_VALID`: the stats below are valid (the guest ignores the block otherwise). `bit 1 HEALTH_VALID`: the health fields are valid (section 8.4). `bit 2 DEAD`: the host decided the character is dead. `bit 3 RATIOS_VALID`: `attackSpeedRatio` and the ratio fields at 0x3C..0x57 are valid (section 8.5) |
 | 0x10 | `level` | character level (informational) |
 | 0x14 | `damage` | the character's damage stat (RoR2 `body.damage`); the guest needs it to predict the host damage of its own hits. Must be > 0 |
-| 0x18 | `attackSpeedRatio` | reserved for later phases (0) |
+| 0x18 | `attackSpeedRatio` | stat ratio (section 8.5, valid with `RATIOS_VALID`) |
 | 0x1C | `critPercent` | informational (the host rolls crit) |
 | 0x20 | `critMultiplier` | informational |
 | 0x24 | `health` | host-authoritative health (section 8.4): current health |
@@ -566,7 +566,14 @@ Host -> guest, 0x280 bytes, only needed together with `HOSTFLAG_STAT_DAMAGE` (`E
 | 0x30 | `fullShield` | |
 | 0x34 | `barrier` | |
 | 0x38 | `cursePenalty` | information only |
-| 0x3C | `reserved1[9]` | 0 (later: move speed, armor...) |
+| 0x3C | `moveSpeedRatio` | stat ratio (section 8.5) |
+| 0x40 | `extraJumps` | u32, extra mid-air jumps |
+| 0x44 | `jumpPowerRatio` | |
+| 0x48 | `sprintSpeedRatio` | |
+| 0x4C | `rechargeSecondary` | |
+| 0x50 | `rechargeSpecial` | |
+| 0x54 | `rechargeUtility` | |
+| 0x58 | `reserved1[2]` | 0 |
 | 0x60 | `damageScale` | host balance multiplier applied to stat damage |
 | 0x64 | `headshotMultiplier` | weak point multiplier (RoR2: 1.5) |
 | 0x68 | `reserved2[6]` | 0 |
@@ -598,6 +605,42 @@ independent of `WriteHostCombat`), then sets `HOSTFLAG_OWNS_HEALTH` in `ErmcHost
 - **Death.** V1 dies when `DEAD` is set. The host should not let a lethal hit kill the character outside the shared-life protocol: it keeps it alive at 1 HP, publishes
   `DEAD`, ignores further damage, and waits for the guest's `mcDeaths++` (then applies its death policy, soft respawn or a real death) or for a timeout of its own.
   A real death of the host character that the guest did not cause still arrives as `hostDeaths++`.
+
+### 8.5 Stat ratios (optional extension, `HOSTFLAG_STATS`)
+
+A host whose character has RPG stats (Risk of Rain 2: movement speed, attack speed, jumps, cooldowns) can let them drive V1. The host
+publishes **ratios against the character's base stats at its current level** in `ErmcHostCombat` (`HostLink.WriteHostRatios`, independent of
+`WriteHostCombat` / `WriteHostHealth`: each keeps the other's flag bits), then sets `HOSTFLAG_STATS` (bit 4 of `ErmcHostEvents.flags`). A character at
+level 1 with no items and no buffs publishes 1.0 everywhere and `extraJumps` 0, so level ups alone never change V1. Ratios are clamped to `[0, 10]`
+(`StatsWire.MaxRatio`); NaN becomes 1. Publish them every frame, the call only touches memory when a value changed.
+
+| Field | Meaning (RoR2 host) | Helper |
+| --- | --- | --- |
+| `attackSpeedRatio` (0x18) | `attackSpeed / (baseAttackSpeed + levelAttackSpeed * (level - 1))` | `StatsWire.Ratio` |
+| `moveSpeedRatio` (0x3C) | `moveSpeed / base`, sprint multiplier divided out when the body sprints. Goat Hoof, speed buffs, slows. A rooted / frozen body publishes 0 | `StatsWire.Ratio` |
+| `extraJumps` (0x40) | `maxJumpCount - baseJumpCount`, never negative (Hopoo Feather) | `StatsWire.ExtraJumps` |
+| `jumpPowerRatio` (0x44) | `jumpPower / base` | `StatsWire.Ratio` |
+| `sprintSpeedRatio` (0x48) | how much more a sprint gains than a vanilla sprint: `1 + 0.25 * energyDrinks / (moveRatio * sprintMultiplier)`; 1 without items. V1's slide is its sprint | `StatsWire.SprintRatio` |
+| `rechargeSecondary` / `Special` / `Utility` (0x4C..0x54) | `1 / cooldownScale` of that skill (Alien Head, Purity...): rate of V1's alt-fire recharges, heavy charges and dash stamina | `StatsWire.Recharge` |
+
+The ratios are balance-neutral on purpose: the **guest** decides how much of a bonus V1 gets and caps it (`[Stats]` in the guest config, see
+guest-reference.md): `multiplier = clamp(1 + (ratio - 1) * gain, min, max)` (`StatsWire.Gain`), followed with a smoothing rate so host buffs that
+switch on and off do not jerk V1. Defaults: movement gain 0.6 (clamp 0.5..2.0), slide gain 0.4, attack speed gain 0.75 (clamp 0.75..2.5), recharge
+gain 0.6 (0.75..2.5), jump power gain 0.5 (1..1.5), mid-air jumps capped at 3.
+
+What the guest drives (all Harmony hooks, each can be switched off in `[Stats]`):
+
+- **Movement:** `NewMovement.walkSpeed` is written as base x multiplier at the start of every physics step (walking and air control); during a slide with the slide multiplier;
+  the dash keeps ULTRAKILL's distance unless `DashScalesWithSpeed`. `jumpPower` the same way. The game's own value is remembered and restored exactly when the feature turns off.
+- **Extra jumps:** a jump press that the game ignored in mid-air (no ground / coyote jump, no wall jump) calls `NewMovement.Jump()` (the normal jump force) while a counter
+  allows it; the counter resets on the ground.
+- **Attack speed:** the revolver's shot timer, the nailgun's fire cooldown, the rocket launcher's cooldown and the punch cooldown advance faster; the shotgun and hammer
+  (shots gated by an animation event) run their `Animator` faster. Alt-fire charges are not attack speed.
+- **Recharge:** `WeaponCharges.Charge(amount)` is scaled (every alt fire, saw, heat sink, zapper, magnet, cannonball, napalm, freeze time), the railcannon charge by the special
+  rate, the dash stamina by the utility rate.
+
+Hosts that never set the bit are unaffected; the guest stops applying (and restores the game's values) when the bit clears, the block disappears, V1 is not driven or the host
+is gone. Not forwarded yet (future work): V1's skill-like actions as RoR2 skill activations for items keyed on skill use (see UltraRain COMBAT-DESIGN M7); sprint events.
 
 ## 9. frames.shm in detail
 

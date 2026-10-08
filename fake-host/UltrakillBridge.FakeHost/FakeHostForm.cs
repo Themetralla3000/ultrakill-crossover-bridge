@@ -128,6 +128,16 @@ public sealed unsafe class FakeHostForm : Form
             else if (e.KeyCode == Keys.O) _sim.ToggleOwnsHealth();
             else if (e.KeyCode == Keys.G) _sim.Heal(0.25f);
             else if (e.KeyCode == Keys.J) _sim.AddShield(0.2f);
+            else if (e.KeyCode == Keys.Y) _sim.ToggleStats();
+            else if (e.KeyCode == Keys.D1) _sim.StepMove(-0.25f);
+            else if (e.KeyCode == Keys.D2) _sim.StepMove(0.25f);
+            else if (e.KeyCode == Keys.D3) _sim.StepAttack(-0.25f);
+            else if (e.KeyCode == Keys.D4) _sim.StepAttack(0.25f);
+            else if (e.KeyCode == Keys.D5) _sim.StepJumps(-1);
+            else if (e.KeyCode == Keys.D6) _sim.StepJumps(1);
+            else if (e.KeyCode == Keys.D7) _sim.StepRecharge(-0.25f);
+            else if (e.KeyCode == Keys.D8) _sim.StepRecharge(0.25f);
+            else if (e.KeyCode == Keys.D9) _sim.ResetStats();
         }
     }
 
@@ -305,6 +315,7 @@ public sealed unsafe class FakeHostForm : Form
         lines.Add($"STAT  {(_sim.StatDamage ? "on" : "off")} [T]  body dmg {_sim.BodyDamage:0.#} crit {_sim.CritPercent:0}% x{_sim.CritMultiplier:0.#}  (5 s window per weapon)");
         foreach (string wl in _sim.WeaponRates(_sim.NowMs)) lines.Add(wl);
         lines.Add($"HEALTH {(_sim.OwnsHealth ? "host-owned" : "off")} [O]  hp {_sim.Health:0}/{_sim.MaxHealth:0} shield {_sim.Shield:0} barrier {_sim.Barrier:0} dead={_sim.Dead}  guest combat={_sim.GuestCombatFlags:X} dodged={_sim.Dodged} parried={_sim.Parried} healReq={_sim.HealRequests} healed={_sim.HealedTotal:0}  [G] heal 25% [J] shield");
+        lines.Add($"STATS {(_sim.StatsOn ? "on" : "off")} [Y]  move x{_sim.MoveRatio:0.00} [1/2]  attack x{_sim.AttackRatio:0.00} [3/4]  extra jumps {_sim.ExtraJumps} [5/6]  recharge x{_sim.RechargeAlt:0.00} [7/8]  reset [9]");
         lines.Add($"RUN   loadoutMode={_sim.LoadoutMode} seed={_sim.RunSeed} bosses={_sim.Bosses} stages={_sim.Stages}  [B] boss [N] new run [M] mode");
         lines.Add($"CAPS  drawsPrompt={_sim.DrawsPrompt} needsInput={_sim.NeedsInput}  [P] native prompt [I] menu open   guest: interactKey='{_sim.GuestInteractKey}' held={_sim.GuestHeld:X} equipment={_sim.EquipmentUses} pings={_sim.Pings}");
         if (_sim.DrawsPrompt && _sim.NearDoor && _sim.StoodIn) lines.Add($"      (native prompt) [{_sim.GuestInteractKey}] {(_sim.World.DoorOpen ? "Close" : "Open")}");

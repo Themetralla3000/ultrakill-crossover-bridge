@@ -465,6 +465,53 @@ namespace UltrakillBridge.HostSdk
             SeqEnd(&p->seq, s);
         }
 
+        /// <summary>
+        /// Publishes the RoR2-style stat ratios (advertised with <see cref="Protocol.HostFlagStats"/>) in the combat block. Every
+        /// argument is a ratio against the stand-in body's base value (1.0 = unchanged; see <see cref="StatsWire"/> for helpers
+        /// that build them); <paramref name="extraJumps"/> is maxJumpCount - baseJumpCount. Ratios are clamped to
+        /// [0, <see cref="StatsWire.MaxRatio"/>]. Independent of WriteHostCombat / WriteHostHealth (each keeps the other's flag
+        /// bits). Cheap: only touches memory when a value changed. Call it BEFORE setting the flag in WriteHostEvents.
+        /// </summary>
+        public void WriteHostRatios(float attackSpeed, float moveSpeed, uint extraJumps, float jumpPower, float sprintSpeed,
+            float rechargeSecondary, float rechargeSpecial, float rechargeUtility)
+        {
+            if (_b == null) return;
+            attackSpeed = Fix(attackSpeed); moveSpeed = Fix(moveSpeed); jumpPower = Fix(jumpPower); sprintSpeed = Fix(sprintSpeed);
+            rechargeSecondary = Fix(rechargeSecondary); rechargeSpecial = Fix(rechargeSpecial); rechargeUtility = Fix(rechargeUtility);
+            var p = (ErmcHostCombat*)(_b + Protocol.OffHostCombat);
+            bool init = p->magic != Protocol.HostCombatMagic || p->version != Protocol.HostCombatVersion;
+            if (!init && (p->flags & Protocol.CombatRatiosValid) != 0 && p->attackSpeedRatio == attackSpeed && p->moveSpeedRatio == moveSpeed
+                && p->extraJumps == extraJumps && p->jumpPowerRatio == jumpPower && p->sprintSpeedRatio == sprintSpeed
+                && p->rechargeSecondary == rechargeSecondary && p->rechargeSpecial == rechargeSpecial && p->rechargeUtility == rechargeUtility) return;
+            uint s = SeqBegin(&p->seq);
+            p->version = Protocol.HostCombatVersion;
+            p->flags |= Protocol.CombatRatiosValid;
+            p->attackSpeedRatio = attackSpeed;
+            p->moveSpeedRatio = moveSpeed;
+            p->extraJumps = extraJumps;
+            p->jumpPowerRatio = jumpPower;
+            p->sprintSpeedRatio = sprintSpeed;
+            p->rechargeSecondary = rechargeSecondary;
+            p->rechargeSpecial = rechargeSpecial;
+            p->rechargeUtility = rechargeUtility;
+            Thread.MemoryBarrier();
+            p->magic = Protocol.HostCombatMagic;
+            SeqEnd(&p->seq, s);
+        }
+
+        private static float Fix(float v) => float.IsNaN(v) || float.IsInfinity(v) ? 1f : v < 0f ? 0f : v > StatsWire.MaxRatio ? StatsWire.MaxRatio : v;
+
+        /// <summary>Clears the stat ratios (the host stops publishing them, e.g. a config switch): the guest returns V1 to its own stats.</summary>
+        public void ClearHostRatios()
+        {
+            if (_b == null) return;
+            var p = (ErmcHostCombat*)(_b + Protocol.OffHostCombat);
+            if (p->magic != Protocol.HostCombatMagic || (p->flags & Protocol.CombatRatiosValid) == 0) return;
+            uint s = SeqBegin(&p->seq);
+            p->flags &= ~Protocol.CombatRatiosValid;
+            SeqEnd(&p->seq, s);
+        }
+
         // ---- guest requests (optional, ErmcGuestRequests) -----------------------------------------------
 
         /// <summary>

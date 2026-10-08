@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **RoR2 stats drive V1 (combat phase d).** New host capability `HostFlagStats` (`ErmcHostEvents.flags` bit 4) and ratio fields in
+  `ErmcHostCombat` (flag `CombatRatiosValid`, bit 3): `attackSpeedRatio` (0x18, was reserved), `moveSpeedRatio` 0x3C, `extraJumps` 0x40,
+  `jumpPowerRatio` 0x44, `sprintSpeedRatio` 0x48, `rechargeSecondary` / `Special` / `Utility` 0x4C..0x54 (`reserved1` is now 2 floats at 0x58;
+  size still 0x280). Ratios are relative to the host character's base stats, so level 1 without items is 1.0. Host SDK:
+  `HostLink.WriteHostRatios` / `ClearHostRatios`; protocol library: `StatsWire` (ratio, gain, smoothing, sprint and recharge maths) and `ScaledValue`.
+  Guest: new `[Stats]` config section (switches, gains, min / max caps, smoothing) and `HostStats` + `StatPatches`: walk / air / slide speed
+  (`NewMovement.walkSpeed`, the dash keeps its distance), jump force, extra mid-air jumps (normal `Jump()`, counter resets on the ground),
+  attack speed on the revolver, nailgun, rocket launcher and punch timers and on the shotgun / hammer animators, alt-fire / railcannon recharge
+  (`WeaponCharges.Charge`) and dash stamina regeneration. Applied smoothly, restored exactly when off or when the host stops advertising. Fake host:
+  fake ratios (`Y` toggle, `1`..`9` change them). Tests: layout, ratio / gain / smoothing / advance maths, `ScaledValue`, wire round trip.
+
 - **Host-authoritative health (combat phase c).** New host capability `HostFlagOwnsHealth` (`ErmcHostEvents.flags` bit 3). The host
   publishes its character's `health`, `fullHealth`, `shield`, `fullShield`, `barrier`, `cursePenalty` and a `DEAD` bit in
   `ErmcHostCombat` (`HostLink.WriteHostHealth` / `ClearHostHealth`; flags `CombatHealthValid` / `CombatDead`). With

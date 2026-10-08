@@ -34,7 +34,7 @@ public static unsafe class HealthTests
         Expect((int)((byte*)&c.fullShield - (byte*)&c) == 0x30, "health: fullShield @0x30");
         Expect((int)((byte*)&c.barrier - (byte*)&c) == 0x34, "health: barrier @0x34");
         Expect((int)((byte*)&c.cursePenalty - (byte*)&c) == 0x38, "health: cursePenalty @0x38");
-        Expect((int)((byte*)c.reserved1 - (byte*)&c) == 0x3C, "health: reserved1 @0x3C up to damageScale @0x60");
+        Expect((int)((byte*)&c.moveSpeedRatio - (byte*)&c) == 0x3C && (int)((byte*)c.reserved1 - (byte*)&c) == 0x58, "health: first ratio @0x3C, reserved1 @0x58 up to damageScale @0x60");
         Expect((int)((byte*)&c.damageScale - (byte*)&c) == 0x60, "health: damageScale unchanged @0x60");
         ErmcGuestRequests r = default;
         Expect(sizeof(ErmcGuestRequests) == 0x40, "health: ErmcGuestRequests is 0x40 bytes");

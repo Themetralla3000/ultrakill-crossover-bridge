@@ -76,5 +76,6 @@ failures += CacheTests.Run();
 failures += LoadoutTests.Run();
 failures += StatTests.Run();
 failures += HealthTests.Run();
+failures += StatsTests.Run();
 Console.WriteLine(failures == 0 ? "ALL OK" : $"{failures} FAILURES");
 return failures == 0 ? 0 : 1;

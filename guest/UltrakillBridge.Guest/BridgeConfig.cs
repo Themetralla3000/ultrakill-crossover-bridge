@@ -23,6 +23,13 @@ namespace UltrakillBridge.Guest
         public static ConfigEntry<float> OverhealCap;
         public static ConfigEntry<bool> HardDamageVisual;
 
+        // Stats (RoR2 stats drive V1; UltraRain docs/COMBAT-DESIGN.md F.3)
+        public static ConfigEntry<bool> StatsEnabled;
+        public static ConfigEntry<bool> MoveSpeedOn, SlideSpeedOn, DashScalesWithSpeed, JumpPowerOn, ExtraJumpsOn, AttackSpeedOn, AttackAnimations, RechargeOn, DashRechargeOn;
+        public static ConfigEntry<float> MoveSpeedGain, MoveSpeedMin, MoveSpeedMax, SlideGain, JumpPowerGain, JumpPowerMax;
+        public static ConfigEntry<float> AttackSpeedGain, AttackSpeedMin, AttackSpeedMax, RechargeGain, RechargeMin, RechargeMax, StatSmoothing;
+        public static ConfigEntry<int> MaxExtraJumps;
+
         // Rendering / window
         public static ConfigEntry<bool> Composite;
         public static ConfigEntry<bool> InputOverlay;
@@ -86,6 +93,36 @@ namespace UltrakillBridge.Guest
                 "Measurement probe: append every hit on a host enemy to <bridge dir>/hitlog.csv (time, hitter, weapon, multipliers, head/limb, shot sequence...). Summarise with scripts/hitlog-summary.ps1. Does not change behaviour.");
             SolidEnemies = cfg.Bind("Combat", "SolidEnemies", false,
                 "Host enemies block V1 and can be stood on (proxy hitboxes on layer 11 instead of 10).");
+
+            StatsEnabled = cfg.Bind("Stats", "Enabled", true,
+                "Apply the stats the host publishes (it advertises HostStats; Risk of Rain 2 does): movement speed, attack speed, extra jumps and recharge rates of its character drive V1, so Goat Hoof, Soldier's Syringe, Hopoo Feather, Alien Head... work. Everything is a ratio against the host character's base stats (level 1, no items = x1.0). Off, or a host without the capability: ULTRAKILL's own numbers, nothing is touched.");
+            MoveSpeedOn = cfg.Bind("Stats", "MoveSpeed", true, "Host movement speed scales V1's walk and air speed (NewMovement.walkSpeed).");
+            MoveSpeedGain = cfg.Bind("Stats", "MoveSpeedGain", 0.6f,
+                "How much of the host's movement bonus V1 gets: multiplier = 1 + (ratio - 1) * gain. ULTRAKILL is already fast; 0.6 turns RoR2's +50 % into +30 %.");
+            MoveSpeedMin = cfg.Bind("Stats", "MoveSpeedMin", 0.5f, "Lowest movement multiplier (chill / slows can slow V1 down to this).");
+            MoveSpeedMax = cfg.Bind("Stats", "MoveSpeedMax", 2f, "Highest movement multiplier. Terrain sampling around V1 ([Terrain] RadiusMetres) limits how fast is safe.");
+            SlideSpeedOn = cfg.Bind("Stats", "SlideSpeed", true, "The slide is V1's sprint: host movement speed times the sprint bonus (Energy Drink) scales it, with SlideGain.");
+            SlideGain = cfg.Bind("Stats", "SlideGain", 0.4f, "Gain for the slide: multiplier = 1 + (moveRatio * sprintRatio - 1) * gain, clamped like the walk multiplier.");
+            DashScalesWithSpeed = cfg.Bind("Stats", "DashScalesWithSpeed", false, "Also scale the dash's distance with the walk multiplier. Off (default): the dash always covers ULTRAKILL's distance, dodge i-frames included.");
+            JumpPowerOn = cfg.Bind("Stats", "JumpPower", true, "Host jump power scales V1's jump force (NewMovement.jumpPower).");
+            JumpPowerGain = cfg.Bind("Stats", "JumpPowerGain", 0.5f, "Gain for the jump force: multiplier = 1 + (ratio - 1) * gain, never below 1.");
+            JumpPowerMax = cfg.Bind("Stats", "JumpPowerMax", 1.5f, "Highest jump force multiplier.");
+            ExtraJumpsOn = cfg.Bind("Stats", "ExtraJumps", true,
+                "Hopoo Feather and friends: every extra jump of the host character is one mid-air jump for V1 (ULTRAKILL has none; it uses the normal jump force and does not replace wall jumps). The counter resets on the ground.");
+            MaxExtraJumps = cfg.Bind("Stats", "MaxExtraJumps", 3, "Most mid-air jumps V1 gets whatever the host publishes (0-10).");
+            AttackSpeedOn = cfg.Bind("Stats", "AttackSpeed", true,
+                "Host attack speed makes V1's weapons cycle faster: revolver shot timer, nailgun fire rate, rocket launcher cooldown, punch cooldown, and the shotgun / hammer animation speed (their shot timing is an animation event). Charged / alt-fire recharges are NOT attack speed, see Recharge.");
+            AttackSpeedGain = cfg.Bind("Stats", "AttackSpeedGain", 0.75f, "multiplier = 1 + (ratio - 1) * gain.");
+            AttackSpeedMin = cfg.Bind("Stats", "AttackSpeedMin", 0.75f, "Lowest attack speed multiplier (a slowing debuff cannot make V1 slower than this).");
+            AttackSpeedMax = cfg.Bind("Stats", "AttackSpeedMax", 2.5f, "Highest attack speed multiplier.");
+            AttackAnimations = cfg.Bind("Stats", "AttackSpeedAnimations", true, "Scale the shotgun and hammer animators with the attack speed (their ready-to-fire event comes from the animation). Off: those weapons keep their normal cadence.");
+            RechargeOn = cfg.Bind("Stats", "Recharge", true,
+                "Host cooldown reduction (Alien Head, Purity, Light Flux Pauldron...) speeds up the recharge of every alt fire and special charge (WeaponCharges.Charge: Piercer, coins, Marksman, grenade, saw, heat sinks, zapper, magnets, railcannon, cannonball, napalm, freeze time).");
+            DashRechargeOn = cfg.Bind("Stats", "DashRecharge", true, "The host character's utility cooldown reduction speeds up V1's dash stamina regeneration.");
+            RechargeGain = cfg.Bind("Stats", "RechargeGain", 0.6f, "multiplier = 1 + (rate - 1) * gain, where rate = 1 / the host's cooldown scale.");
+            RechargeMin = cfg.Bind("Stats", "RechargeMin", 0.75f, "Lowest recharge multiplier.");
+            RechargeMax = cfg.Bind("Stats", "RechargeMax", 2.5f, "Highest recharge multiplier (a stack of Alien Heads would otherwise refill the railcannon at once).");
+            StatSmoothing = cfg.Bind("Stats", "SmoothingPerSecond", 3f, "How fast the applied multipliers follow the targets, in multiplier units per second (3: a +0.3 bonus takes 0.1 s). Hosts publish steps (buffs expire); this avoids visible jerks.");
 
             Composite = cfg.Bind("Rendering", "Composite", true,
                 "Send V1's viewmodel, effects and HUD to the host to be drawn into its frame.");
@@ -168,6 +205,10 @@ namespace UltrakillBridge.Guest
                 HealthModel.Value = "Host";
             }
             Clamp(OverhealCap, 100f, 200f, 200f);
+            Clamp(MoveSpeedGain, 0f, 2f, 0.6f); Clamp(MoveSpeedMin, 0.1f, 1f, 0.5f); Clamp(MoveSpeedMax, 1f, 4f, 2f); Clamp(SlideGain, 0f, 2f, 0.4f);
+            Clamp(JumpPowerGain, 0f, 2f, 0.5f); Clamp(JumpPowerMax, 1f, 3f, 1.5f); Clamp(MaxExtraJumps, 0, 10, 3);
+            Clamp(AttackSpeedGain, 0f, 2f, 0.75f); Clamp(AttackSpeedMin, 0.1f, 1f, 0.75f); Clamp(AttackSpeedMax, 1f, 5f, 2.5f);
+            Clamp(RechargeGain, 0f, 2f, 0.6f); Clamp(RechargeMin, 0.1f, 1f, 0.75f); Clamp(RechargeMax, 1f, 5f, 2.5f); Clamp(StatSmoothing, 0.1f, 100f, 3f);
             Clamp(RepeatIntervalMs, 50, 2000, 250);
             if (UnlocksPerBoss.Value < 1 || UnlocksPerBoss.Value > 10) { Warn(UnlocksPerBoss.Definition.Key, UnlocksPerBoss.Value, 1); UnlocksPerBoss.Value = 1; }
             Clamp(MetresPerUnit, 0.05f, 5f, 0.5f);

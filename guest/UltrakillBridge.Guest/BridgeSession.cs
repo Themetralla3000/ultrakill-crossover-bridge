@@ -183,6 +183,7 @@ namespace UltrakillBridge.Guest
             {
                 _hostFlags = 0;
                 HostHealth.Reset();
+                HostStats.Reset();
                 if (Driving) Plugin.Log.LogInfo("Host lost; releasing control.");
                 ReleaseControl();
                 if (_hostGoneSinceMs == long.MinValue) _hostGoneSinceMs = Link.NowMs;
@@ -203,6 +204,7 @@ namespace UltrakillBridge.Guest
             Guard("host damage", () => { ApplyHostDamage(); DrainHostDamage(); });
             Guard("health mirror", () => HostHealth.Mirror(V1.Movement));
             Guard("guest combat state", () => HostHealth.PublishGuestState(Link, V1.Movement, Driving));
+            Guard("host stats", () => HostStats.Update(Link, _hostFlags, Driving, Time.unscaledDeltaTime));
             TrackOwnDeath();
 
             nm = V1.Movement;
@@ -587,6 +589,7 @@ namespace UltrakillBridge.Guest
             sb.AppendLine($"terrain: {_terrain.Status}");
             sb.AppendLine($"enemies: {_enemies.Status}");
             sb.AppendLine($"health: {HostHealth.Status}");
+            sb.AppendLine($"stats: {HostStats.Status}");
             sb.AppendLine($"capture: {_capture.Status}");
             sb.AppendLine($"window: {_overlay.Status}");
             sb.AppendLine($"interact: {_interaction.Status}");

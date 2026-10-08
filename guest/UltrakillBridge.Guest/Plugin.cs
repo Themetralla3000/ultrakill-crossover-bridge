@@ -33,6 +33,7 @@ namespace UltrakillBridge.Guest
             var harmony = new Harmony(Guid);
             harmony.PatchAll(typeof(Plugin).Assembly);
             Combat.ShotTracker.Install(harmony);
+            Combat.StatPatches.Install(harmony);
 
             // The chainloader runs before ULTRAKILL's first scene; objects made this early do not survive it.
             // A static scene hook does, so the session is (re)created from there.

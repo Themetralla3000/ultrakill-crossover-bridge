@@ -28,6 +28,7 @@
 #define ERMC_HOSTFLAG_NEEDS_INPUT   (1u << 1) /* the host has UI that needs the mouse (picker, shop...): the guest hands input to the host while set, then takes it back */
 
 #define ERMC_HOSTFLAG_STAT_DAMAGE   (1u << 2) /* the host understands STAT damage entries and publishes ErmcHostCombat (below); without it the guest sends the legacy fraction encoding */
+#define ERMC_HOSTFLAG_STATS         (1u << 4) /* the host publishes the RoR2-style stat ratios (movement, attack speed, extra jumps, recharge...) in ErmcHostCombat (ERMC_COMBAT_RATIOS_VALID): the guest applies them to V1 */
 #define ERMC_HOSTFLAG_OWNS_HEALTH   (1u << 3) /* the host owns the player's health: it publishes health/shield/barrier/dead in ErmcHostCombat (ERMC_COMBAT_HEALTH_VALID) every frame, the guest mirrors them onto V1's bar and sends heals / i-frames / parry window in ErmcGuestRequests */
 
 #pragma pack(push, 4)
@@ -160,6 +161,21 @@ static_assert(ERMC_OFF_GUEST_REQUESTS + sizeof(ErmcGuestRequests) <= ERMC_SHM_SI
 #define ERMC_COMBAT_STATS_VALID  (1u << 0)
 #define ERMC_COMBAT_HEALTH_VALID (1u << 1) /* health, fullHealth, shield, fullShield, barrier, cursePenalty are valid (host-authoritative health) */
 #define ERMC_COMBAT_DEAD         (1u << 2) /* the host decided the character is dead (an intercepted lethal hit, or a real death) */
+#define ERMC_COMBAT_RATIOS_VALID (1u << 3) /* attackSpeedRatio and the ratio fields at 0x3C..0x57 are valid (advertised with ERMC_HOSTFLAG_STATS) */
+
+/*
+ * Stat ratios (ERMC_HOSTFLAG_STATS). Every ratio is "current stat / the stand-in body's base stat at its current level", so a
+ * character at level 1 with no items and no buffs publishes 1.0 everywhere (and extraJumps 0). Hosts clamp them to [0, 10].
+ * The guest applies its own gain, caps and smoothing (config [Stats]); the host never has to know ULTRAKILL's numbers.
+ *   attackSpeedRatio    CharacterBody.attackSpeed / base (Syringe, Soldier's Syringe, War Horn buff, crit buffs...)
+ *   moveSpeedRatio      CharacterBody.moveSpeed / base, sprint multiplier divided out (Paul's Goat Hoof, speed buffs, slows)
+ *   extraJumps          maxJumpCount - baseJumpCount (Hopoo Feather)
+ *   jumpPowerRatio      CharacterBody.jumpPower / base
+ *   sprintSpeedRatio    how much more sprinting gains than the base sprint multiplier (Energy Drink): 1.0 = vanilla sprint
+ *   rechargeSecondary   1 / cooldownScale of the secondary skill (Alien Head, Purity...): rate of alt fire recharges
+ *   rechargeSpecial     1 / cooldownScale of the special skill: rate of the heavy charges (railcannon)
+ *   rechargeUtility     1 / cooldownScale of the utility skill: rate of V1's dash stamina
+ */
 
 /* ErmcHunterEvents.lastHitKind: ErmcEntity kind in the low byte; this bit = the hit was rejected host-side because the guest's parry window was open */
 #define ERMC_HUNTERKIND_PARRIED  (1u << 8)
@@ -177,7 +193,7 @@ typedef struct ErmcHostCombat {
     uint32_t flags;               /* 0x0C ERMC_COMBAT_* */
     uint32_t level;               /* 0x10 character level */
     float    damage;              /* 0x14 body damage stat */
-    float    attackSpeedRatio;    /* 0x18 reserved for later phases */
+    float    attackSpeedRatio;    /* 0x18 stat ratio, see ERMC_COMBAT_RATIOS_VALID */
     float    critPercent;         /* 0x1C */
     float    critMultiplier;      /* 0x20 */
     float    health;              /* 0x24 current health (valid with ERMC_COMBAT_HEALTH_VALID) */
@@ -186,7 +202,14 @@ typedef struct ErmcHostCombat {
     float    fullShield;          /* 0x30 */
     float    barrier;             /* 0x34 */
     float    cursePenalty;        /* 0x38 information only */
-    float    reserved1[9];        /* 0x3C */
+    float    moveSpeedRatio;      /* 0x3C stat ratio (see above) */
+    uint32_t extraJumps;          /* 0x40 extra mid-air jumps */
+    float    jumpPowerRatio;      /* 0x44 */
+    float    sprintSpeedRatio;    /* 0x48 */
+    float    rechargeSecondary;   /* 0x4C */
+    float    rechargeSpecial;     /* 0x50 */
+    float    rechargeUtility;     /* 0x54 */
+    float    reserved1[2];        /* 0x58 */
     float    damageScale;         /* 0x60 host balance multiplier */
     float    headshotMultiplier;  /* 0x64 weak point multiplier */
     uint32_t reserved2[6];        /* 0x68 */

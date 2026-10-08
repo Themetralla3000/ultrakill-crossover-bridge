@@ -101,6 +101,20 @@ public sealed class HostSim
     public void ToggleOwnsHealth() { OwnsHealth = !OwnsHealth; Say($"host owns health: {OwnsHealth}"); }
     public void Heal(float fraction) { Health = MathF.Min(MaxHealth, Health + MaxHealth * fraction); Say($"healed {fraction:P0} (health {Health:0}/{MaxHealth:0})"); }
     public void AddShield(float fraction) { Shield += MaxHealth * fraction; Barrier += MaxHealth * fraction; Say($"shield {Shield:0} barrier {Barrier:0}"); }
+    // Stat ratios (HostFlagStats): fake Goat Hoof / Syringe / Feather / Alien Head so the guest's [Stats] hooks can be tried without RoR2.
+    public bool StatsOn = true;
+    public float MoveRatio = 1f, AttackRatio = 1f, JumpPowerRatio = 1f, SprintRatio = 1f, RechargeAlt = 1f, RechargeSpecial = 1f, RechargeUtility = 1f;
+    public uint ExtraJumps;
+    public void ToggleStats() { StatsOn = !StatsOn; Say($"stat ratios advertised: {StatsOn}"); }
+    public void StepMove(float d) { MoveRatio = MathF.Max(0f, MathF.Round((MoveRatio + d) * 100f) / 100f); Say($"move speed ratio {MoveRatio:0.00}"); }
+    public void StepAttack(float d) { AttackRatio = MathF.Max(0f, MathF.Round((AttackRatio + d) * 100f) / 100f); Say($"attack speed ratio {AttackRatio:0.00}"); }
+    public void StepJumps(int d) { ExtraJumps = (uint)Math.Max(0, (int)ExtraJumps + d); Say($"extra jumps {ExtraJumps}"); }
+    public void StepRecharge(float d)
+    {
+        RechargeAlt = RechargeSpecial = RechargeUtility = MathF.Max(0f, MathF.Round((RechargeAlt + d) * 100f) / 100f);
+        Say($"recharge ratio (alt / special / utility) {RechargeAlt:0.00}");
+    }
+    public void ResetStats() { MoveRatio = AttackRatio = JumpPowerRatio = SprintRatio = RechargeAlt = RechargeSpecial = RechargeUtility = 1f; ExtraJumps = 0; Say("stat ratios reset to 1.0"); }
     public uint EquipmentUses, Pings, GuestHeld;
     public string GuestInteractKey = "";
     private bool _reqInit;
@@ -432,9 +446,11 @@ public sealed class HostSim
         Link.WriteHostCombat(BodyLevel, BodyDamage, CritPercent, CritMultiplier, DamageScale, HeadshotMultiplier, _k, _proc);
         if (OwnsHealth) Link.WriteHostHealth(Health, MaxHealth, Shield, 0f, Barrier, 1f, Dead);
         else Link.ClearHostHealth();
+        if (StatsOn) Link.WriteHostRatios(AttackRatio, MoveRatio, ExtraJumps, JumpPowerRatio, SprintRatio, RechargeAlt, RechargeSpecial, RechargeUtility);
+        else Link.ClearHostRatios();
         Link.WriteHostEvents(LoadoutMode, RunSeed, new[] { Bosses, Stages },
             (DrawsPrompt ? Protocol.HostFlagDrawsPrompt : 0u) | (NeedsInput ? Protocol.HostFlagNeedsInput : 0u) |
-            (StatDamage ? Protocol.HostFlagStatDamage : 0u) | (OwnsHealth ? Protocol.HostFlagOwnsHealth : 0u));
+            (StatDamage ? Protocol.HostFlagStatDamage : 0u) | (OwnsHealth ? Protocol.HostFlagOwnsHealth : 0u) | (StatsOn ? Protocol.HostFlagStats : 0u));
         st.unitsPerMeter = 1f;
         uint flags = 0;
         if (win.Valid)

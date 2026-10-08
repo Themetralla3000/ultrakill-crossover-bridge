@@ -47,6 +47,15 @@ public sealed class PanelForm : Form
         AddButton("Stat damage on/off  [T]", 8, y, () => _sim.ToggleStatDamage());
         AddButton("Host owns health on/off  [O]", 224, y, () => _sim.ToggleOwnsHealth());
         y += 34;
+        AddButton("Stat ratios on/off  [Y]", 8, y, () => _sim.ToggleStats());
+        AddButton("Reset stats to 1.0  [9]", 224, y, () => _sim.ResetStats());
+        y += 34;
+        AddButton("Move speed -/+  [1/2]", 8, y, () => _sim.StepMove(0.25f));
+        AddButton("Attack speed +  [3/4]", 224, y, () => _sim.StepAttack(0.25f));
+        y += 34;
+        AddButton("Extra jump +  [5/6]", 8, y, () => _sim.StepJumps(1));
+        AddButton("Recharge +  [7/8]", 224, y, () => _sim.StepRecharge(0.25f));
+        y += 34;
         AddButton("Heal 25 %  [G]", 8, y, () => _sim.Heal(0.25f));
         AddButton("Shield + barrier 20 %  [J]", 224, y, () => _sim.AddShield(0.2f));
         y += 38;
@@ -61,7 +70,7 @@ public sealed class PanelForm : Form
         y += 30;
         Controls.Add(new Label
         {
-            Text = "Host window keys: H hit, K kill plane, R respawn, B boss defeated, N new run, M loadout mode, P native prompt, I menu open, T stat damage, O host health, G heal, J shield, W/S/A/D walk (when not driven), F8 = mcSwitchReq++",
+            Text = "Host window keys: H hit, K kill plane, R respawn, B boss defeated, N new run, M loadout mode, P native prompt, I menu open, T stat damage, O host health, G heal, J shield, Y stat ratios, 1/2 move -/+, 3/4 attack -/+, 5/6 extra jumps -/+, 7/8 recharge -/+, 9 reset stats, W/S/A/D walk (when not driven), F8 = mcSwitchReq++",
             Left = 8, Top = y, Width = 424, Height = 32,
         });
 

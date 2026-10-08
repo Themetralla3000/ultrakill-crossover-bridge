@@ -63,6 +63,16 @@ Bridge folder resolution (guest, fake host, host SDK): `UKBRIDGE_DIR`, else `ERM
 | Combat | `HardDamageVisual` | false | Keep ULTRAKILL's yellow hard-damage bar while the host owns the health (visual only). |
 | Combat | `HitLog` | false | Measurement probe: append every hit on a host enemy to `<bridge dir>\hitlog.csv` (time, hitter, weapon id, multipliers, head/limb, shot sequence...), buffered. Summarise per weapon (hits/s, damage per hit, UK DPS) with `scripts\hitlog-summary.ps1`. Does not change behaviour. |
 | Combat | `SolidEnemies` | false | Host enemies block V1 and can be stood on (proxy hitboxes on layer 11 instead of 10). |
+| Stats | `Enabled` | true | Apply the stats the host publishes (`HostFlagStats`; Risk of Rain 2 does): movement speed, attack speed, extra jumps and recharge rates of its character drive V1 (protocol.md 8.5). Everything is a ratio against the host character's base (level 1, no items = x1.0). Off or no capability: ULTRAKILL's own numbers, nothing is touched. |
+| Stats | `MoveSpeed`, `MoveSpeedGain`, `MoveSpeedMin`, `MoveSpeedMax` | true, 0.6, 0.5, 2.0 | Walk and air speed (`NewMovement.walkSpeed`): `multiplier = clamp(1 + (ratio - 1) * gain, min, max)`. |
+| Stats | `SlideSpeed`, `SlideGain` | true, 0.4 | The slide is V1's sprint: `1 + (moveRatio * sprintRatio - 1) * gain`, same clamp. |
+| Stats | `DashScalesWithSpeed` | false | Also scale the dash's distance with the walk multiplier (default: the dash keeps ULTRAKILL's distance). |
+| Stats | `JumpPower`, `JumpPowerGain`, `JumpPowerMax` | true, 0.5, 1.5 | Jump force (`NewMovement.jumpPower`), never below x1. |
+| Stats | `ExtraJumps`, `MaxExtraJumps` | true, 3 | One mid-air jump per extra jump of the host character (Hopoo Feather), normal jump force, resets on the ground, wall jumps keep priority. |
+| Stats | `AttackSpeed`, `AttackSpeedGain`, `AttackSpeedMin`, `AttackSpeedMax` | true, 0.75, 0.75, 2.5 | Revolver shot timer, nailgun fire rate, rocket launcher and punch cooldowns. |
+| Stats | `AttackSpeedAnimations` | true | Run the shotgun and hammer animators at the attack speed (their ready-to-fire event is part of the animation). |
+| Stats | `Recharge`, `DashRecharge`, `RechargeGain`, `RechargeMin`, `RechargeMax` | true, true, 0.6, 0.75, 2.5 | Alt-fire / special charge recharge (`WeaponCharges.Charge`, the railcannon with the special rate) and dash stamina (utility rate). |
+| Stats | `SmoothingPerSecond` | 3 | How fast the applied multipliers follow their targets (multiplier units per second). |
 | Rendering | `Composite` | true | Send V1's viewmodel, effects and HUD to the host to be drawn into its frame. |
 | Rendering | `InputOverlay` | true | Glue ULTRAKILL's window, nearly transparent, on top of the host window so it receives the keyboard and mouse. |
 | Rendering | `SwitchKey` / `InteractKey` | F8 / V | The control-switch and interaction keys. If equal, the interact key is moved to a free one. |
