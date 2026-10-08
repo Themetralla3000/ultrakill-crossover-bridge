@@ -28,6 +28,7 @@
 #define ERMC_HOSTFLAG_NEEDS_INPUT   (1u << 1) /* the host has UI that needs the mouse (picker, shop...): the guest hands input to the host while set, then takes it back */
 
 #define ERMC_HOSTFLAG_STAT_DAMAGE   (1u << 2) /* the host understands STAT damage entries and publishes ErmcHostCombat (below); without it the guest sends the legacy fraction encoding */
+#define ERMC_HOSTFLAG_OWNS_HEALTH   (1u << 3) /* the host owns the player's health: it publishes health/shield/barrier/dead in ErmcHostCombat (ERMC_COMBAT_HEALTH_VALID) every frame, the guest mirrors them onto V1's bar and sends heals / i-frames / parry window in ErmcGuestRequests */
 
 #pragma pack(push, 4)
 typedef struct ErmcHostEvents {
@@ -58,6 +59,14 @@ static_assert(ERMC_OFF_HOST_EVENTS + sizeof(ErmcHostEvents) <= ERMC_SHM_SIZE, "h
 #define ERMC_GREQ_MAGIC         0x51524B55u /* bytes "UKRQ" */
 #define ERMC_GREQ_VERSION       1u
 
+/* ErmcGuestRequests.extFlags */
+#define ERMC_GREQ_EXT_COMBAT_VALID  (1u << 0) /* combatFlags / healMilli / punchSeq below are valid (older guests write 0 and a 0x30-byte block) */
+
+/* ErmcGuestRequests.combatFlags (host-authoritative health; only meaningful while the host sets ERMC_HOSTFLAG_OWNS_HEALTH) */
+#define ERMC_GREQ_COMBAT_DASHING      (1u << 0) /* V1 is dashing: ULTRAKILL dodge i-frames, the host should ignore incoming damage */
+#define ERMC_GREQ_COMBAT_HURT_FRAMES  (1u << 1) /* V1 is inside the half second of invincibility after a hit */
+#define ERMC_GREQ_COMBAT_PARRY_WINDOW (1u << 2) /* a punch started within the last 0.25 s: one close melee hit may be parried (see punchSeq) */
+
 /* ErmcGuestRequests.held: level state of the guest's keys (for hosts that want native hold behaviour) */
 #define ERMC_GREQ_HELD_INTERACT   (1u << 0)
 #define ERMC_GREQ_HELD_EQUIPMENT  (1u << 1)
@@ -71,13 +80,18 @@ typedef struct ErmcGuestRequests {
     uint32_t held;                /* 0x0C ERMC_GREQ_HELD_* */
     uint32_t useEquipment;        /* 0x10 ++ per press of the guest's equipment key */
     uint32_t ping;                /* 0x14 ++ per press of the guest's ping key */
-    uint32_t reserved[2];         /* 0x18 write 0 */
+    uint32_t extFlags;            /* 0x18 ERMC_GREQ_EXT_* (was reserved; 0 from older guests) */
+    uint32_t reserved;            /* 0x1C write 0 */
     char     interactKey[16];     /* 0x20 UTF-8, NUL-terminated name of the guest's interact key ("V"), for the host's glyph; "" = unknown */
-} ErmcGuestRequests;              /* 0x30 */
+    uint32_t combatFlags;         /* 0x30 ERMC_GREQ_COMBAT_* */
+    uint32_t healMilli;           /* 0x34 cumulative heal V1 asks for, in 1/1000 ULTRAKILL HP, wraps; the host heals by the difference (1 UK HP = fullHealth/100 * its scale) */
+    uint32_t punchSeq;            /* 0x38 ++ per punch start; the host consumes each parry window once */
+    uint32_t reserved2;           /* 0x3C */
+} ErmcGuestRequests;              /* 0x40 */
 #pragma pack(pop)
 
 #ifdef __cplusplus
-static_assert(sizeof(ErmcGuestRequests) == 0x30, "guest requests size");
+static_assert(sizeof(ErmcGuestRequests) == 0x40, "guest requests size");
 static_assert(ERMC_OFF_GUEST_REQUESTS >= ERMC_OFF_HOST_EVENTS + sizeof(ErmcHostEvents), "guest requests after host events");
 static_assert(ERMC_OFF_GUEST_REQUESTS + sizeof(ErmcGuestRequests) <= ERMC_SHM_SIZE, "guest requests fit");
 #endif
@@ -143,7 +157,12 @@ static_assert(ERMC_OFF_GUEST_REQUESTS + sizeof(ErmcGuestRequests) <= ERMC_SHM_SI
 #define ERMC_OFF_HOST_COMBAT   0x361000u
 #define ERMC_HOSTCOMBAT_MAGIC  0x42434B55u /* bytes "UKCB" */
 #define ERMC_HOSTCOMBAT_VERSION 1u
-#define ERMC_COMBAT_STATS_VALID (1u << 0)
+#define ERMC_COMBAT_STATS_VALID  (1u << 0)
+#define ERMC_COMBAT_HEALTH_VALID (1u << 1) /* health, fullHealth, shield, fullShield, barrier, cursePenalty are valid (host-authoritative health) */
+#define ERMC_COMBAT_DEAD         (1u << 2) /* the host decided the character is dead (an intercepted lethal hit, or a real death) */
+
+/* ErmcHunterEvents.lastHitKind: ErmcEntity kind in the low byte; this bit = the hit was rejected host-side because the guest's parry window was open */
+#define ERMC_HUNTERKIND_PARRIED  (1u << 8)
 
 #pragma pack(push, 4)
 typedef struct ErmcWeaponCoeff {
@@ -161,7 +180,13 @@ typedef struct ErmcHostCombat {
     float    attackSpeedRatio;    /* 0x18 reserved for later phases */
     float    critPercent;         /* 0x1C */
     float    critMultiplier;      /* 0x20 */
-    float    reserved1[15];       /* 0x24 */
+    float    health;              /* 0x24 current health (valid with ERMC_COMBAT_HEALTH_VALID) */
+    float    fullHealth;          /* 0x28 full health, already including curse and max-HP items */
+    float    shield;              /* 0x2C */
+    float    fullShield;          /* 0x30 */
+    float    barrier;             /* 0x34 */
+    float    cursePenalty;        /* 0x38 information only */
+    float    reserved1[9];        /* 0x3C */
     float    damageScale;         /* 0x60 host balance multiplier */
     float    headshotMultiplier;  /* 0x64 weak point multiplier */
     uint32_t reserved2[6];        /* 0x68 */

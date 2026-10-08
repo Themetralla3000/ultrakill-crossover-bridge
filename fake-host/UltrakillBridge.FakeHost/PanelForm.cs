@@ -20,7 +20,7 @@ public sealed class PanelForm : Form
         _sim = sim;
         Text = "FakeHost panel";
         FormBorderStyle = FormBorderStyle.FixedToolWindow;
-        ClientSize = new Size(440, 520);
+        ClientSize = new Size(440, 560);
         ShowInTaskbar = false;
 
         int y = 8;
@@ -45,6 +45,10 @@ public sealed class PanelForm : Form
         AddButton("Menu open (needs input)  [I]", 224, y, () => _sim.ToggleNeedsInput());
         y += 34;
         AddButton("Stat damage on/off  [T]", 8, y, () => _sim.ToggleStatDamage());
+        AddButton("Host owns health on/off  [O]", 224, y, () => _sim.ToggleOwnsHealth());
+        y += 34;
+        AddButton("Heal 25 %  [G]", 8, y, () => _sim.Heal(0.25f));
+        AddButton("Shield + barrier 20 %  [J]", 224, y, () => _sim.AddShield(0.2f));
         y += 38;
 
         Controls.Add(new Label { Text = "Spawn x/y/z", Left = 8, Top = y + 4, Width = 80 });
@@ -57,7 +61,7 @@ public sealed class PanelForm : Form
         y += 30;
         Controls.Add(new Label
         {
-            Text = "Host window keys: H hit, K kill plane, R respawn, B boss defeated, N new run, M loadout mode, P native prompt, I menu open, T stat damage, W/S/A/D walk (when not driven), F8 = mcSwitchReq++",
+            Text = "Host window keys: H hit, K kill plane, R respawn, B boss defeated, N new run, M loadout mode, P native prompt, I menu open, T stat damage, O host health, G heal, J shield, W/S/A/D walk (when not driven), F8 = mcSwitchReq++",
             Left = 8, Top = y, Width = 424, Height = 32,
         });
 

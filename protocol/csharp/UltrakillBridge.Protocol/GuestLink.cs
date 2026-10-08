@@ -277,7 +277,7 @@ namespace UltrakillBridge.Link
 
         // ---- guest requests (optional, ErmcGuestRequests) -------------------------------------------
 
-        private uint _reqEquipment, _reqPing, _reqHeld;
+        private uint _reqEquipment, _reqPing, _reqHeld, _reqCombatFlags, _reqHealMilli, _reqPunchSeq;
         private byte[] _reqKeyLabel = new byte[Protocol.InteractKeyChars];
         private bool _reqSynced;
 
@@ -289,6 +289,25 @@ namespace UltrakillBridge.Link
 
         /// <summary>Level state of the guest's keys, <see cref="Protocol.HeldInteract"/> | ...</summary>
         public void SetHeldKeys(uint held) { SyncRequestBaseline(); _reqHeld = held; }
+
+        /// <summary>
+        /// Host-authoritative health, guest side: V1's i-frame / parry-window state (<see cref="Protocol.GuestDashing"/> |
+        /// <see cref="Protocol.GuestHurtFrames"/> | <see cref="Protocol.GuestParryWindow"/>), republished every frame by
+        /// <see cref="FlushGuestRequests"/>. 0 when V1 is not driving.
+        /// </summary>
+        public void SetGuestCombatState(uint combatFlags) { SyncRequestBaseline(); _reqCombatFlags = combatFlags; }
+
+        /// <summary>V1 healed by <paramref name="ukHp"/> ULTRAKILL HP (blood, parry...): asks the host to heal its character.</summary>
+        public void RequestHeal(float ukHp)
+        {
+            uint m = HealthWire.ToMilli(ukHp);
+            if (m == 0) return;
+            SyncRequestBaseline();
+            _reqHealMilli = unchecked(_reqHealMilli + m);
+        }
+
+        /// <summary>V1 started a punch (opens the host-side reactive parry window while <see cref="Protocol.GuestParryWindow"/> is set).</summary>
+        public void NotePunchStart() { SyncRequestBaseline(); _reqPunchSeq++; }
 
         /// <summary>The name of the guest's interact key, for the host's own prompt glyph (max 15 bytes of UTF-8).</summary>
         public void SetInteractKeyLabel(string label)
@@ -313,6 +332,11 @@ namespace UltrakillBridge.Link
             {
                 _reqEquipment = p->useEquipment;
                 _reqPing = p->ping;
+                if ((p->extFlags & Protocol.GuestCombatValid) != 0)
+                {
+                    _reqHealMilli = p->healMilli;
+                    _reqPunchSeq = p->punchSeq;
+                }
             }
         }
 
@@ -322,7 +346,9 @@ namespace UltrakillBridge.Link
             if (_b == null || !_reqSynced) return;
             var p = (ErmcGuestRequests*)(_b + Protocol.OffGuestRequests);
             bool ok = p->magic == Protocol.GuestRequestsMagic && p->version == Protocol.GuestRequestsVersion
-                      && p->useEquipment == _reqEquipment && p->ping == _reqPing && p->held == _reqHeld;
+                      && p->useEquipment == _reqEquipment && p->ping == _reqPing && p->held == _reqHeld
+                      && p->extFlags == Protocol.GuestCombatValid && p->combatFlags == _reqCombatFlags
+                      && p->healMilli == _reqHealMilli && p->punchSeq == _reqPunchSeq;
             if (ok)
                 for (int i = 0; i < Protocol.InteractKeyChars; i++)
                     if (p->interactKey[i] != _reqKeyLabel[i]) { ok = false; break; }
@@ -335,6 +361,10 @@ namespace UltrakillBridge.Link
             p->held = _reqHeld;
             p->useEquipment = _reqEquipment;
             p->ping = _reqPing;
+            p->extFlags = Protocol.GuestCombatValid;
+            p->combatFlags = _reqCombatFlags;
+            p->healMilli = _reqHealMilli;
+            p->punchSeq = _reqPunchSeq;
             for (int i = 0; i < Protocol.InteractKeyChars; i++) p->interactKey[i] = _reqKeyLabel[i];
             Thread.MemoryBarrier();
             p->magic = Protocol.GuestRequestsMagic;

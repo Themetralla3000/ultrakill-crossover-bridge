@@ -43,6 +43,13 @@ namespace UltrakillBridge.Link
         /// keeps sending the legacy fraction encoding.
         /// </summary>
         public const uint HostFlagStatDamage = 1u << 2;
+        /// <summary>
+        /// ErmcHostEvents.flags: the host owns the player's health (health model "Host"). It publishes health / shield /
+        /// barrier / alive in <see cref="ErmcHostCombat"/> (flag <see cref="CombatHealthValid"/>) every frame, the guest mirrors them onto
+        /// V1's bar, sends heals as <see cref="ErmcGuestRequests.healMilli"/> and its i-frame / parry-window state as
+        /// <see cref="ErmcGuestRequests.combatFlags"/>. Without it V1 keeps its own 100 HP.
+        /// </summary>
+        public const uint HostFlagOwnsHealth = 1u << 3;
         /// <summary>Optional ErmcHostCombat block (bridge_protocol_ext.h), host -> guest: stats and the per-weapon table.</summary>
         public const int OffHostCombat = 0x361000;
         public const uint HostCombatMagic = 0x42434B55u; // "UKCB"
@@ -50,6 +57,20 @@ namespace UltrakillBridge.Link
         public const int WeaponSlots = 64;
         /// <summary>ErmcHostCombat.flags: the stats fields (level, damage, crit...) are valid.</summary>
         public const uint CombatStatsValid = 1u << 0;
+        /// <summary>ErmcHostCombat.flags: health, fullHealth, shield, fullShield, barrier, cursePenalty are valid.</summary>
+        public const uint CombatHealthValid = 1u << 1;
+        /// <summary>ErmcHostCombat.flags: the host decided the character is dead (a lethal hit it intercepted, or a real death).</summary>
+        public const uint CombatDead = 1u << 2;
+        /// <summary>ErmcHunterEvents.lastHitKind bit: the hit was rejected host-side because the guest's parry window was open (kind in the low byte).</summary>
+        public const uint HunterKindParried = 1u << 8;
+        /// <summary>ErmcGuestRequests.extFlags: the combat fields (combatFlags, healMilli, punchSeq) are valid.</summary>
+        public const uint GuestCombatValid = 1u << 0;
+        /// <summary>ErmcGuestRequests.combatFlags: V1 is dashing (ULTRAKILL dodge i-frames).</summary>
+        public const uint GuestDashing = 1u << 0;
+        /// <summary>ErmcGuestRequests.combatFlags: V1 is inside its hurt i-frames (half a second after a hit).</summary>
+        public const uint GuestHurtFrames = 1u << 1;
+        /// <summary>ErmcGuestRequests.combatFlags: a punch started recently enough that a melee hit would be parried (see punchSeq).</summary>
+        public const uint GuestParryWindow = 1u << 2;
         /// <summary>Optional ErmcGuestRequests block (bridge_protocol_ext.h), guest -> host.</summary>
         public const int OffGuestRequests = 0x360100;
         public const uint GuestRequestsMagic = 0x51524B55u; // "UKRQ"
@@ -368,7 +389,13 @@ namespace UltrakillBridge.Link
         public float attackSpeedRatio;  // 0x18 (reserved for later phases)
         public float critPercent;       // 0x1C body.crit
         public float critMultiplier;    // 0x20 body.critMultiplier
-        public fixed float reserved1[15]; // 0x24..0x5F (moveRatio, armor, hp, ... for later phases)
+        public float health;            // 0x24 HealthComponent.health (valid with CombatHealthValid)
+        public float fullHealth;        // 0x28 fullHealth (already includes curse and max-HP items)
+        public float shield;            // 0x2C
+        public float fullShield;        // 0x30
+        public float barrier;           // 0x34
+        public float cursePenalty;      // 0x38 information only (maxHealth already reduced)
+        public fixed float reserved1[9]; // 0x3C..0x5F (moveRatio, armor, ... for later phases)
         public float damageScale;       // 0x60 host balance multiplier on stat damage
         public float headshotMultiplier;// 0x64 weak point multiplier
         public fixed uint reserved2[6]; // 0x68
@@ -385,9 +412,14 @@ namespace UltrakillBridge.Link
         public uint held;               // 0x0C
         public uint useEquipment;       // 0x10
         public uint ping;               // 0x14
-        public fixed uint reserved[2];  // 0x18
+        public uint extFlags;           // 0x18 Protocol.GuestCombatValid (was reserved; old guests write 0)
+        public uint reserved;           // 0x1C
         public fixed byte interactKey[16]; // 0x20
-    }                                   // 0x30
+        public uint combatFlags;        // 0x30 Protocol.GuestDashing | GuestHurtFrames | GuestParryWindow (valid with GuestCombatValid)
+        public uint healMilli;          // 0x34 cumulative blood/parry heal in 1/1000 ULTRAKILL HP, wraps; the host heals by the difference
+        public uint punchSeq;           // 0x38 ++ per punch start; the host consumes each window once
+        public uint reserved2;          // 0x3C
+    }                                   // 0x40
 
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     public struct ErmcPassage

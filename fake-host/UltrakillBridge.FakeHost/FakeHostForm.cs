@@ -125,6 +125,9 @@ public sealed unsafe class FakeHostForm : Form
             else if (e.KeyCode == Keys.P) _sim.ToggleDrawsPrompt();
             else if (e.KeyCode == Keys.I) _sim.ToggleNeedsInput();
             else if (e.KeyCode == Keys.T) _sim.ToggleStatDamage();
+            else if (e.KeyCode == Keys.O) _sim.ToggleOwnsHealth();
+            else if (e.KeyCode == Keys.G) _sim.Heal(0.25f);
+            else if (e.KeyCode == Keys.J) _sim.AddShield(0.2f);
         }
     }
 
@@ -301,6 +304,7 @@ public sealed unsafe class FakeHostForm : Form
         lines.Add($"      last: {_sim.LastDamage}");
         lines.Add($"STAT  {(_sim.StatDamage ? "on" : "off")} [T]  body dmg {_sim.BodyDamage:0.#} crit {_sim.CritPercent:0}% x{_sim.CritMultiplier:0.#}  (5 s window per weapon)");
         foreach (string wl in _sim.WeaponRates(_sim.NowMs)) lines.Add(wl);
+        lines.Add($"HEALTH {(_sim.OwnsHealth ? "host-owned" : "off")} [O]  hp {_sim.Health:0}/{_sim.MaxHealth:0} shield {_sim.Shield:0} barrier {_sim.Barrier:0} dead={_sim.Dead}  guest combat={_sim.GuestCombatFlags:X} dodged={_sim.Dodged} parried={_sim.Parried} healReq={_sim.HealRequests} healed={_sim.HealedTotal:0}  [G] heal 25% [J] shield");
         lines.Add($"RUN   loadoutMode={_sim.LoadoutMode} seed={_sim.RunSeed} bosses={_sim.Bosses} stages={_sim.Stages}  [B] boss [N] new run [M] mode");
         lines.Add($"CAPS  drawsPrompt={_sim.DrawsPrompt} needsInput={_sim.NeedsInput}  [P] native prompt [I] menu open   guest: interactKey='{_sim.GuestInteractKey}' held={_sim.GuestHeld:X} equipment={_sim.EquipmentUses} pings={_sim.Pings}");
         if (_sim.DrawsPrompt && _sim.NearDoor && _sim.StoodIn) lines.Add($"      (native prompt) [{_sim.GuestInteractKey}] {(_sim.World.DoorOpen ? "Close" : "Open")}");

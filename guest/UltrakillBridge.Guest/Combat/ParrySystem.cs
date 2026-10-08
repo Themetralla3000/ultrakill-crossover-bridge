@@ -31,10 +31,14 @@ namespace UltrakillBridge.Guest.Combat
         private static bool _loggedError;
         private static bool _loggedFirst;
 
+        /// <summary>A punch started recently enough that a melee hit now would be parried (published to the host as GuestParryWindow).</summary>
+        internal static bool WindowOpen => Time.unscaledTime - _punchTime <= WindowBefore;
+
         /// <summary>Records the moment and aim of a punch (called from the PunchStart patch).</summary>
         internal static void NotePunch()
         {
             _punchTime = Time.unscaledTime;
+            HostHealth.OnPunch();
             var cc = V1.Camera;
             if (cc != null) _punchDir = cc.transform.forward;
         }
@@ -43,19 +47,30 @@ namespace UltrakillBridge.Guest.Combat
         /// Decides whether the host hit described by <paramref name="ev"/> is parried. True: the parry (feedback and
         /// attacker damage) has been applied and V1 must not be hurt.
         /// </summary>
-        public static unsafe bool TryParry(ErmcHunterEvents ev, float hostDamage)
+        /// <param name="forced">
+        /// The host already decided (host-authoritative health: it rejected the hit because the published parry window was
+        /// open and the attacker was close): skip the timing and range checks, only look the attacker up for the counter damage.
+        /// </param>
+        public static unsafe bool TryParry(ErmcHunterEvents ev, float hostDamage, bool forced = false)
         {
             try
             {
                 float age = Time.unscaledTime - _punchTime;
-                if (age > WindowBefore || age < -WindowAfter) return false;
+                if (!forced && (age > WindowBefore || age < -WindowAfter)) return false;
                 if (!(hostDamage > 0f)) return false;
 
                 var mgr = EnemyProxyManager.Active;
                 CoordMap map = mgr != null ? mgr.LastMap : null;
                 var cc = V1.Camera;
                 var nm = V1.Movement;
-                if (mgr == null || map == null || cc == null || nm == null || nm.dead) return false;
+                if (nm == null || nm.dead) return false;
+                if (!forced && (mgr == null || map == null || cc == null)) return false;
+                if (forced && (mgr == null || map == null || cc == null))
+                {
+                    _punchTime = -100f;
+                    nm.Parry(null);
+                    return true;
+                }
 
                 Vector3 eye = cc.transform.position;
                 float sx = ev.lastHitFrom[0], sy = ev.lastHitFrom[1], sz = ev.lastHitFrom[2];
@@ -65,14 +80,20 @@ namespace UltrakillBridge.Guest.Combat
                 EnemyProxy attacker = hasSource
                     ? mgr.Nearest(map.ToUk(sx, sy, sz), map.ToUkLength(SourceSearchMetres))
                     : mgr.Nearest(eye, map.ToUkLength(RangeMetres));
-                if (attacker == null) return false;
+                if (attacker == null)
+                {
+                    if (!forced) return false;
+                    _punchTime = -100f;
+                    nm.Parry(null); // the host rejected the hit: V1 still gets ULTRAKILL's parry (flash, heal, style), nothing to counter
+                    return true;
+                }
 
                 // roughly in front of V1 and within punching distance of the entity's box surface
                 Vector3 surface = attacker.RootCol != null ? attacker.RootCol.ClosestPoint(eye) : attacker.CenterWorld;
                 Vector3 toAttacker = surface - eye;
                 float dist = toAttacker.magnitude;
-                if (map.ToHostLength(dist) > RangeMetres) return false;
-                if (dist > 0.05f)
+                if (!forced && map.ToHostLength(dist) > RangeMetres) return false;
+                if (!forced && dist > 0.05f)
                 {
                     Vector3 dir = toAttacker / dist;
                     // 90 degrees from where V1 looked when punching, or where V1 looks now

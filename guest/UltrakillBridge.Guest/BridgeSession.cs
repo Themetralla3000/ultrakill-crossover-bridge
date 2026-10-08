@@ -182,6 +182,7 @@ namespace UltrakillBridge.Guest
             if (!_alive || !haveState)
             {
                 _hostFlags = 0;
+                HostHealth.Reset();
                 if (Driving) Plugin.Log.LogInfo("Host lost; releasing control.");
                 ReleaseControl();
                 if (_hostGoneSinceMs == long.MinValue) _hostGoneSinceMs = Link.NowMs;
@@ -197,8 +198,11 @@ namespace UltrakillBridge.Guest
 
             Guard("counters", ReadCounters);
             Guard("host input", HandleHostFlags);
+            Guard("host health", () => HostHealth.Read(Link, _hostFlags));
             Guard("anchor", UpdateAnchor);
             Guard("host damage", () => { ApplyHostDamage(); DrainHostDamage(); });
+            Guard("health mirror", () => HostHealth.Mirror(V1.Movement));
+            Guard("guest combat state", () => HostHealth.PublishGuestState(Link, V1.Movement, Driving));
             TrackOwnDeath();
 
             nm = V1.Movement;
@@ -423,6 +427,20 @@ namespace UltrakillBridge.Guest
             _lastHits = ev.hitCount;
             _lastTotalDamage = ev.totalDamage;
             var nm = V1.Movement;
+            if (HostHealth.Active)
+            {
+                // The host applied (or parried) this hit already; its health is mirrored. Only the feedback is ours.
+                if (nm == null || nm.dead || hostDamage <= 0f) return;
+                if ((ev.lastHitKind & Protocol.HunterKindParried) != 0)
+                {
+                    Combat.ParrySystem.TryParry(ev, hostDamage, forced: true);
+                    return;
+                }
+                if (!Driving) return;
+                float fshare = hostDamage / Mathf.Max(ev.hunterMaxHp, 1f);
+                HostHealth.Feedback(nm, Mathf.Max(1, Mathf.RoundToInt(fshare * 100f * BridgeConfig.HostDamageScale.Value)));
+                return;
+            }
             if (nm == null || nm.dead || !Driving || hostDamage <= 0f) return;
             if (Combat.ParrySystem.TryParry(ev, hostDamage)) return; // punched just in time: parried, no damage
             float share = hostDamage / Mathf.Max(ev.hunterMaxHp, 1f);
@@ -436,6 +454,7 @@ namespace UltrakillBridge.Guest
         private void DrainHostDamage()
         {
             var nm = V1.Movement;
+            if (HostHealth.Active) { _pendingDamage = 0f; return; }
             if (_pendingDamage <= 0f) return;
             if (nm == null || nm.dead || !Driving) { _pendingDamage = 0f; return; }
             if (nm.hurtInvincibility > 0f) return; // wait for the i-frames to run out
@@ -567,6 +586,7 @@ namespace UltrakillBridge.Guest
             sb.AppendLine($"recall pending {_recallPending}  holding {_holdingForGround}  map {(Map == null ? "-" : Map.Zone.ToString("X8"))}");
             sb.AppendLine($"terrain: {_terrain.Status}");
             sb.AppendLine($"enemies: {_enemies.Status}");
+            sb.AppendLine($"health: {HostHealth.Status}");
             sb.AppendLine($"capture: {_capture.Status}");
             sb.AppendLine($"window: {_overlay.Status}");
             sb.AppendLine($"interact: {_interaction.Status}");

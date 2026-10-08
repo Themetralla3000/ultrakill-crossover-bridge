@@ -44,7 +44,7 @@ unsafe
     Check("hostEvents runSeed offset", (int)((byte*)&he.runSeed - (byte*)&he), 0x18);
     Check("hostEvents counters offset", (int)((byte*)he.counters - (byte*)&he), 0x20);
     Check("OffHostEvents free + in range", Protocol.OffHostEvents >= Protocol.OffCollisionControl + 48 && Protocol.OffHostEvents + sizeof(ErmcHostEvents) <= Protocol.ShmSize ? 1 : 0, 1);
-    Check("ErmcGuestRequests", sizeof(ErmcGuestRequests), 0x30);
+    Check("ErmcGuestRequests", sizeof(ErmcGuestRequests), 0x40);
     ErmcGuestRequests gr = default;
     Check("guestReq seq offset", (int)((byte*)&gr.seq - (byte*)&gr), 0x08);
     Check("guestReq held offset", (int)((byte*)&gr.held - (byte*)&gr), 0x0C);
@@ -75,5 +75,6 @@ failures += RoundTripTests.Run();
 failures += CacheTests.Run();
 failures += LoadoutTests.Run();
 failures += StatTests.Run();
+failures += HealthTests.Run();
 Console.WriteLine(failures == 0 ? "ALL OK" : $"{failures} FAILURES");
 return failures == 0 ? 0 : 1;

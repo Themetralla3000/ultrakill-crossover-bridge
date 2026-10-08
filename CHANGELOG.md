@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Host-authoritative health (combat phase c).** New host capability `HostFlagOwnsHealth` (`ErmcHostEvents.flags` bit 3). The host
+  publishes its character's `health`, `fullHealth`, `shield`, `fullShield`, `barrier`, `cursePenalty` and a `DEAD` bit in
+  `ErmcHostCombat` (`HostLink.WriteHostHealth` / `ClearHostHealth`; flags `CombatHealthValid` / `CombatDead`). With
+  `[Combat] HealthModel = Host` (new, default; `V1` = the old 100 HP model) the guest mirrors it onto V1's bar
+  (`HealthWire.UkHp`: 100 x combined health / full health, shield + barrier as overheal up to `OverhealCap` 200), kills V1 when the
+  host says dead, and turns host hits into hurt feedback only (no HP subtracted twice). Every ULTRAKILL heal (blood, parry) becomes a
+  heal request (`NewMovement.GetHealth` prefix); damage ULTRAKILL deals to V1 itself is neutralised (`GetHurt` prefix/postfix).
+  `ErmcGuestRequests` grows from 0x30 to 0x40 bytes (version unchanged, `extFlags` bit 0 says the tail is valid): `combatFlags`
+  (dashing, hurt i-frames, parry window), cumulative `healMilli`, `punchSeq`. A hit the host rejected for the parry window
+  is reported with `HunterKindParried` and the guest performs the parry (`ParrySystem.TryParry(forced)`). New config
+  `[Combat] HealthModel`, `OverhealCap`, `HardDamageVisual`. Protocol library: `HealthWire`, `GuestLink.SetGuestCombatState/RequestHeal/NotePunchStart`.
+  Fake host: owns a health pool with regen, shield, barrier, heals, dodge / parry rejection and lethal interception (`O`, `G`, `J`).
+  Tests: layouts, mapping and heal maths, wire round trips. Hosts that never set the bit are unaffected.
+
 - **Stat damage model and hit log (combat phases a and b).** Optional protocol extension for hosts with their own damage
   maths. New host capability `HostFlagStatDamage` (`ErmcHostEvents.flags` bit 2) and new optional host -> guest block
   `ErmcHostCombat` at `0x361000` (`UKCB`: the character's damage/crit stats and a `{k, proc}` table per weapon id).

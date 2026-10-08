@@ -328,7 +328,8 @@ namespace UltrakillBridge.HostSdk
 
         /// <summary>
         /// Records one HP-loss event of the stand-in (game.cpp:1064-1089): hitCount++, totalDamage += damage,
-        /// lastDamage/lastHitFrom/hunterMaxHp/lastHitFrame/lastHitKind, all under the seqlock.
+        /// lastDamage/lastHitFrom/hunterMaxHp/lastHitFrame/lastHitKind, all under the seqlock. <paramref name="kind"/> is an
+        /// ErmcEntity kind; OR in <see cref="Protocol.HunterKindParried"/> when the host rejected the hit for the guest's parry window.
         /// </summary>
         public void ReportHunterHit(float damage, Vector3 from, float hunterMaxHp, ulong frame, uint kind)
         {
@@ -405,7 +406,7 @@ namespace UltrakillBridge.HostSdk
             if (same) return;
             uint s = SeqBegin(&p->seq);
             p->version = Protocol.HostCombatVersion;
-            p->flags = Protocol.CombatStatsValid;
+            p->flags |= Protocol.CombatStatsValid; // keep the health bits (WriteHostHealth)
             p->level = level;
             p->damage = damage;
             p->critPercent = critPercent;
@@ -419,6 +420,48 @@ namespace UltrakillBridge.HostSdk
             }
             Thread.MemoryBarrier();
             p->magic = Protocol.HostCombatMagic;
+            SeqEnd(&p->seq, s);
+        }
+
+        /// <summary>
+        /// Publishes the host character's health in the combat block (host-authoritative health, advertised with
+        /// <see cref="Protocol.HostFlagOwnsHealth"/>): current / full health, shield, barrier and curse, and whether the host
+        /// considers the character dead (<see cref="Protocol.CombatDead"/>). Independent of <see cref="WriteHostCombat"/>
+        /// (each keeps the other's flag bits). Cheap: only touches memory when a value changed. Call it every frame; health
+        /// regenerates, so the block changes most frames. Call it BEFORE setting the flag in WriteHostEvents.
+        /// </summary>
+        public void WriteHostHealth(float health, float fullHealth, float shield, float fullShield, float barrier, float cursePenalty, bool dead)
+        {
+            if (_b == null) return;
+            var p = (ErmcHostCombat*)(_b + Protocol.OffHostCombat);
+            bool init = p->magic != Protocol.HostCombatMagic || p->version != Protocol.HostCombatVersion;
+            bool wasDead = (p->flags & Protocol.CombatDead) != 0;
+            if (!init && (p->flags & Protocol.CombatHealthValid) != 0 && wasDead == dead && p->health == health && p->fullHealth == fullHealth
+                && p->shield == shield && p->fullShield == fullShield && p->barrier == barrier && p->cursePenalty == cursePenalty) return;
+            uint s = SeqBegin(&p->seq);
+            p->version = Protocol.HostCombatVersion;
+            uint f = (p->flags | Protocol.CombatHealthValid) & ~Protocol.CombatDead;
+            if (dead) f |= Protocol.CombatDead;
+            p->flags = f;
+            p->health = health;
+            p->fullHealth = fullHealth;
+            p->shield = shield;
+            p->fullShield = fullShield;
+            p->barrier = barrier;
+            p->cursePenalty = cursePenalty;
+            Thread.MemoryBarrier();
+            p->magic = Protocol.HostCombatMagic;
+            SeqEnd(&p->seq, s);
+        }
+
+        /// <summary>Clears the health fields of the combat block (the host stops owning health, e.g. a config switch): the guest falls back to V1's own HP.</summary>
+        public void ClearHostHealth()
+        {
+            if (_b == null) return;
+            var p = (ErmcHostCombat*)(_b + Protocol.OffHostCombat);
+            if (p->magic != Protocol.HostCombatMagic || (p->flags & (Protocol.CombatHealthValid | Protocol.CombatDead)) == 0) return;
+            uint s = SeqBegin(&p->seq);
+            p->flags &= ~(Protocol.CombatHealthValid | Protocol.CombatDead);
             SeqEnd(&p->seq, s);
         }
 

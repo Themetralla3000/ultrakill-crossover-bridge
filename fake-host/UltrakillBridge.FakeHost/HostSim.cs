@@ -80,6 +80,27 @@ public sealed class HostSim
         new System.Collections.Generic.Queue<(long, float, float, int)>[Protocol.WeaponSlots];
     public const long DpsWindowMs = 5000;
     public void ToggleStatDamage() { StatDamage = !StatDamage; Say($"stat damage model advertised: {StatDamage}"); }
+    // Host-authoritative health (HostFlagOwnsHealth): the fake character has a real health pool, shield and barrier,
+    // regenerates, is healed by the guest heal requests, rejects hits the guest dodges / parries, and intercepts a lethal
+    // hit (health stays 1, CombatDead is published) until the guest reports its death.
+    public bool OwnsHealth = true;
+    public float MaxHealth = HunterMaxHp, Health = HunterMaxHp, Shield, Barrier;
+    public float RegenPerSec = 12f;           // 1 % of 1200
+    public float BloodHealScale = 0.5f;       // host heal per ULTRAKILL HP = MaxHealth / 100 * scale
+    public bool RejectDodges = true, RejectHurtFrames = true;
+    public float ParryRangeMetres = 6f;
+    public const long LethalTimeoutMs = 2000;
+    public uint GuestCombatFlags;
+    public uint Parried, Dodged, HealRequests;
+    public float HealedTotal;
+    private bool _lethalPending;
+    private long _lethalAtMs, _lastTickMs;
+    private uint _lastHealMilli, _lastPunchSeq, _parryConsumedPunch;
+    private bool _combatReqInit;
+    public bool Dead => _lethalPending || Life == LifeState.Dead;
+    public void ToggleOwnsHealth() { OwnsHealth = !OwnsHealth; Say($"host owns health: {OwnsHealth}"); }
+    public void Heal(float fraction) { Health = MathF.Min(MaxHealth, Health + MaxHealth * fraction); Say($"healed {fraction:P0} (health {Health:0}/{MaxHealth:0})"); }
+    public void AddShield(float fraction) { Shield += MaxHealth * fraction; Barrier += MaxHealth * fraction; Say($"shield {Shield:0} barrier {Barrier:0}"); }
     public uint EquipmentUses, Pings, GuestHeld;
     public string GuestInteractKey = "";
     private bool _reqInit;
@@ -188,9 +209,65 @@ public sealed class HostSim
             float d = Vector3.DistanceSquared(e.Pos, Pos);
             if (d < best) { best = d; from = e.Pos; kind = e.Kind; }
         }
+        if (OwnsHealth)
+        {
+            TakeOwnedHit(hp, from, kind);
+            return;
+        }
         Link.ReportHunterHit(hp, from, HunterMaxHp, Frame, kind);
         HunterHits++;
         Say($"hunter hit: -{hp:0} HP of {HunterMaxHp:0} from ({from.X:0.0},{from.Y:0.0},{from.Z:0.0}) kind={kind}");
+    }
+
+    /// <summary>A hit on the host-owned health: the host TakeDamage gate (lethal protection, guest i-frames, parry window), then barrier, shield, health.</summary>
+    private void TakeOwnedHit(float hp, Vector3 from, uint kind)
+    {
+        if (_lethalPending) { Say("hit ignored: lethal hit pending"); return; }
+        bool fresh = StoodIn && Link.GuestAlive;
+        if (fresh)
+        {
+            if (RejectDodges && (GuestCombatFlags & Protocol.GuestDashing) != 0) { Dodged++; Say($"hit -{hp:0} rejected: V1 is dashing"); return; }
+            if (RejectHurtFrames && (GuestCombatFlags & Protocol.GuestHurtFrames) != 0) { Dodged++; Say($"hit -{hp:0} rejected: V1 hurt i-frames"); return; }
+            bool near = (from - Pos).Length() <= ParryRangeMetres;
+            if ((GuestCombatFlags & Protocol.GuestParryWindow) != 0 && _lastPunchSeq != _parryConsumedPunch && near)
+            {
+                _parryConsumedPunch = _lastPunchSeq;
+                Parried++;
+                Link.ReportHunterHit(hp, from, MaxHealth, Frame, kind | Protocol.HunterKindParried);
+                HunterHits++;
+                Say($"hit -{hp:0} PARRIED (reported with the parried bit)");
+                return;
+            }
+        }
+        float rest = hp;
+        float b = MathF.Min(Barrier, rest); Barrier -= b; rest -= b;
+        float sh = MathF.Min(Shield, rest); Shield -= sh; rest -= sh;
+        Health -= rest;
+        Link.ReportHunterHit(hp, from, MaxHealth, Frame, kind);
+        HunterHits++;
+        Say($"hunter hit: -{hp:0} (health {MathF.Max(Health, 0):0}/{MaxHealth:0}, shield {Shield:0}, barrier {Barrier:0})");
+        if (Health <= 0f)
+        {
+            Health = 1f;
+            _lethalPending = true;
+            _lethalAtMs = NowMs;
+            Say("lethal hit intercepted: CombatDead published, waiting for the guest death (or 2 s)");
+        }
+    }
+
+    private void TickOwnedHealth(long now)
+    {
+        float dt = _lastTickMs == 0 ? 0f : (now - _lastTickMs) / 1000f;
+        _lastTickMs = now;
+        if (_lethalPending && Life == LifeState.Alive && now - _lethalAtMs > LethalTimeoutMs)
+        {
+            Say("lethal timeout: the guest did not report a death");
+            StartDeath("lethal timeout");
+            return;
+        }
+        if (!OwnsHealth || Life != LifeState.Alive || _lethalPending) return;
+        Health = MathF.Min(MaxHealth, Health + RegenPerSec * dt);
+        Barrier = MathF.Max(0f, Barrier - MaxHealth * 0.01f * dt * 4f);
     }
 
     /// <summary>"Kill plane": the stood-in host character died in the host without the guest asking.</summary>
@@ -204,6 +281,7 @@ public sealed class HostSim
 
     private void StartDeath(string why)
     {
+        _lethalPending = false;
         Life = LifeState.Dead;
         _lifeSinceMs = NowMs;
         _lastAliveOrDeadMs = _lifeSinceMs;
@@ -252,6 +330,7 @@ public sealed class HostSim
             _lifeSinceMs = now;
             _everAlive = true;
             Pos = Spawn;
+            Health = MaxHealth; Shield = 0f; Barrier = 0f; _lethalPending = false;
             Link.BumpHostLife();
             Say($"ALIVE: hostLife={Link.HostLife} (guest must recall to ({Spawn.X:0.##},{Spawn.Y:0.##},{Spawn.Z:0.##}))");
         }
@@ -325,6 +404,7 @@ public sealed class HostSim
             Link.ServiceRays(World.Raycast, HostLink.DefaultRayBudgetMs);
             ServiceDamage(now);
             UpdateEnemies(dt, now);
+            TickOwnedHealth(now);
             if (MeleeEnabled) Melee(now);
             PublishEntities();
             ServiceAction(now);
@@ -336,6 +416,8 @@ public sealed class HostSim
             Link.ClearEntities(Frame);
             Link.SetPrompt("");
             Link.PollActionRequest(out _);   // keep the baseline moving; requests while not ALIVE are dropped
+            TickOwnedHealth(now);
+            DrainHeals(false);
         }
 
         PublishState(win, alive, now);
@@ -348,9 +430,11 @@ public sealed class HostSim
         st.frame = Frame;
         Weapons.Fill(_k, _proc, WeaponTable.DefaultProcTargetPerSec, WeaponTable.DefaultProcCap);
         Link.WriteHostCombat(BodyLevel, BodyDamage, CritPercent, CritMultiplier, DamageScale, HeadshotMultiplier, _k, _proc);
+        if (OwnsHealth) Link.WriteHostHealth(Health, MaxHealth, Shield, 0f, Barrier, 1f, Dead);
+        else Link.ClearHostHealth();
         Link.WriteHostEvents(LoadoutMode, RunSeed, new[] { Bosses, Stages },
             (DrawsPrompt ? Protocol.HostFlagDrawsPrompt : 0u) | (NeedsInput ? Protocol.HostFlagNeedsInput : 0u) |
-            (StatDamage ? Protocol.HostFlagStatDamage : 0u));
+            (StatDamage ? Protocol.HostFlagStatDamage : 0u) | (OwnsHealth ? Protocol.HostFlagOwnsHealth : 0u));
         st.unitsPerMeter = 1f;
         uint flags = 0;
         if (win.Valid)
@@ -541,9 +625,37 @@ public sealed class HostSim
         if (!Link.ReadGuestRequests(out ErmcGuestRequests r)) return;
         GuestHeld = r.held;
         GuestInteractKey = HostLink.InteractKeyName(ref r);
+        ReadGuestCombat(r);
         if (!_reqInit) { _reqInit = true; _lastEq = r.useEquipment; _lastPing = r.ping; return; }  // baseline
         if (r.useEquipment != _lastEq) { _lastEq = r.useEquipment; EquipmentUses++; Say($"[equipment] use #{EquipmentUses} (guest counter {r.useEquipment})"); }
         if (r.ping != _lastPing) { _lastPing = r.ping; Pings++; Say($"[ping] #{Pings} along the camera (guest counter {r.ping})"); }
+    }
+
+    /// <summary>The guest combat state (i-frames, parry window, punch counter) and its heal requests.</summary>
+    private void ReadGuestCombat(ErmcGuestRequests r)
+    {
+        bool valid = (r.extFlags & Protocol.GuestCombatValid) != 0;
+        GuestCombatFlags = valid ? r.combatFlags : 0;
+        if (!valid) return;
+        _lastPunchSeq = r.punchSeq;
+        if (!_combatReqInit) { _combatReqInit = true; _lastHealMilli = r.healMilli; _parryConsumedPunch = r.punchSeq; return; }
+        DrainHeals(true, r);
+    }
+
+    private void DrainHeals(bool apply, ErmcGuestRequests? req = null)
+    {
+        ErmcGuestRequests r;
+        if (req.HasValue) r = req.Value;
+        else if (!Link.ReadGuestRequests(out r) || (r.extFlags & Protocol.GuestCombatValid) == 0) return;
+        float uk = HealthWire.MilliDelta(r.healMilli, _lastHealMilli);
+        _lastHealMilli = r.healMilli;
+        if (uk <= 0f || !_combatReqInit) return;
+        HealRequests++;
+        if (!apply || !OwnsHealth || Dead) return;
+        float amount = HealthWire.HealAmount(uk, MaxHealth, BloodHealScale);
+        float before = Health;
+        Health = MathF.Min(MaxHealth, Health + amount);
+        HealedTotal += Health - before;
     }
 
     public bool NearDoor => World.DistanceToDoor(Pos) <= 2f;

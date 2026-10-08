@@ -93,7 +93,7 @@ There is no ownership field: the protocol assumes exactly one guest process. Two
 | 0x320000 | `ErmcTerrainContacts` | (host, unimplemented) | 0x28 + 4096*0x20; section 5.2 |
 | 0x350000 | `ErmcCollisionControl` (0x30) | (guest, unimplemented) | section 5.2 |
 | 0x360000 | `ErmcHostEvents` (0x60) | host (optional) | seqlock, section 8.1; extension, `protocol/c/bridge_protocol_ext.h` |
-| 0x360100 | `ErmcGuestRequests` (0x30) | guest (optional) | seqlock, section 8.2; extension, `protocol/c/bridge_protocol_ext.h` |
+| 0x360100 | `ErmcGuestRequests` (0x40) | guest (optional) | seqlock, section 8.2; extension, `protocol/c/bridge_protocol_ext.h` |
 | 0x361000 | `ErmcHostCombat` (0x280) | host (optional) | seqlock, section 8.3; goes with the `HOSTFLAG_STAT_DAMAGE` bit, section 6.2.1 |
 
 Struct packing: everything after `#pragma pack(push, 4)` packs to 4; the earlier structs (contacts, collision control, platform) are plain 4-byte-field structs, so their offsets are the same.
@@ -513,7 +513,7 @@ Defined in `protocol/c/bridge_protocol_ext.h` (a separate header; `bridge_protoc
 | 0x00 | `magic` | `0x56454B55` ("UKEV"), written last on the first publish |
 | 0x04 | `version` | 1 |
 | 0x08 | `seq` | seqlock (odd = writing) |
-| 0x0C | `flags` | `bit 2 HOSTFLAG_STAT_DAMAGE`: the host understands stat damage entries and publishes `ErmcHostCombat` (sections 6.2.1 and 8.3). `bit 0 HOSTFLAG_DRAWS_PROMPT`: the host draws its own interaction prompt (and key glyph), so the guest hides its HUD label (`[Interaction] ShowGuestPrompt = Auto`). `bit 1 HOSTFLAG_NEEDS_INPUT`: the host has UI that needs the mouse (item picker, scrapper...): the guest enters host mode (as F8 does) while the bit is set and takes control back when it clears; an F8 in the host while it is set is respected until the bit clears. Hosts that predate the bits write 0 |
+| 0x0C | `flags` | `bit 2 HOSTFLAG_STAT_DAMAGE`: the host understands stat damage entries and publishes `ErmcHostCombat` (sections 6.2.1 and 8.3). `bit 3 HOSTFLAG_OWNS_HEALTH`: the host owns the player's health (section 8.4). `bit 0 HOSTFLAG_DRAWS_PROMPT`: the host draws its own interaction prompt (and key glyph), so the guest hides its HUD label (`[Interaction] ShowGuestPrompt = Auto`). `bit 1 HOSTFLAG_NEEDS_INPUT`: the host has UI that needs the mouse (item picker, scrapper...): the guest enters host mode (as F8 does) while the bit is set and takes control back when it clears; an F8 in the host while it is set is respected until the bit clears. Hosts that predate the bits write 0 |
 | 0x10 | `loadoutMode` | 0 = guest decides, 1 = all weapons, 2 = progression |
 | 0x14 | `reserved0` | 0 |
 | 0x18 | `runSeed` (u64) | identifies the run. A change means "new run": the guest reshuffles and restarts the progression. Must be stable within a run |
@@ -533,8 +533,13 @@ Guest -> host, beyond the interact action (section 7, still `mcActionReq`). A ho
 | 0x0C | `held` | level state of the guest keys: `bit 0 HELD_INTERACT`, `bit 1 HELD_EQUIPMENT`, `bit 2 HELD_PING`. Only set while the guest drives V1 |
 | 0x10 | `useEquipment` | incremented per press of `[Interaction] EquipmentKey` (T) |
 | 0x14 | `ping` | incremented per press of `[Interaction] PingKey` (middle mouse) |
-| 0x18 | `reserved[2]` | 0 |
+| 0x18 | `extFlags` | `bit 0 GREQ_EXT_COMBAT_VALID`: the combat fields below are valid (older guests wrote 0 here and a 0x30-byte block) |
+| 0x1C | `reserved` | 0 |
 | 0x20 | `interactKey[16]` | UTF-8 name of the guest's interact key (`"V"`, `"MMB"`), NUL-terminated, for the host's prompt glyph; empty = unknown |
+| 0x30 | `combatFlags` | host-authoritative health (section 8.4), refreshed every frame, 0 when the guest does not drive: `bit 0 DASHING` (ULTRAKILL dodge i-frames), `bit 1 HURT_FRAMES` (half a second of invincibility after a hit), `bit 2 PARRY_WINDOW` (a punch started within the last 0.25 s) |
+| 0x34 | `healMilli` | cumulative heal V1 asks for, in 1/1000 ULTRAKILL HP, wraps. The host heals by the difference to its last read |
+| 0x38 | `punchSeq` | incremented per punch start; the host consumes each parry window once |
+| 0x3C | `reserved2` | 0 |
 
 Counters are monotonic u32: every difference from the host's last read is one request (compare with `!=`, baseline on the first read; a restarted guest continues from the value in memory). Both aim along the guest camera (`ErmcControl.camPos/camTarget`) and should be executed as the player's own input would be (respecting cooldowns and authority). Hold-to-repeat for interaction is done by the guest: while the interact key is held and the host still publishes a prompt, it issues a new `mcActionReq` every `[Interaction] RepeatIntervalMs` (250, Risk of Rain 2's own cadence) after the previous ack; the `held` bits are published for hosts that prefer native hold handling. `HostLink.ReadGuestRequests` / `HostLink.InteractKeyName`; guest side `GuestLink.RequestEquipment/RequestPing/SetHeldKeys/SetInteractKeyLabel/FlushGuestRequests`.
 
@@ -549,19 +554,50 @@ Host -> guest, 0x280 bytes, only needed together with `HOSTFLAG_STAT_DAMAGE` (`E
 | 0x00 | `magic` | `0x42434B55` ("UKCB"), written last on the first publish |
 | 0x04 | `version` | 1 |
 | 0x08 | `seq` | seqlock (odd = writing) |
-| 0x0C | `flags` | `bit 0 STATS_VALID`: the stats below are valid (the guest ignores the block otherwise) |
+| 0x0C | `flags` | `bit 0 STATS_VALID`: the stats below are valid (the guest ignores the block otherwise). `bit 1 HEALTH_VALID`: the health fields are valid (section 8.4). `bit 2 DEAD`: the host decided the character is dead |
 | 0x10 | `level` | character level (informational) |
 | 0x14 | `damage` | the character's damage stat (RoR2 `body.damage`); the guest needs it to predict the host damage of its own hits. Must be > 0 |
 | 0x18 | `attackSpeedRatio` | reserved for later phases (0) |
 | 0x1C | `critPercent` | informational (the host rolls crit) |
 | 0x20 | `critMultiplier` | informational |
-| 0x24 | `reserved1[15]` | 0 (later: move speed, armor, hp, shield...) |
+| 0x24 | `health` | host-authoritative health (section 8.4): current health |
+| 0x28 | `fullHealth` | full health (already includes curse and max-HP items) |
+| 0x2C | `shield` | |
+| 0x30 | `fullShield` | |
+| 0x34 | `barrier` | |
+| 0x38 | `cursePenalty` | information only |
+| 0x3C | `reserved1[9]` | 0 (later: move speed, armor...) |
 | 0x60 | `damageScale` | host balance multiplier applied to stat damage |
 | 0x64 | `headshotMultiplier` | weak point multiplier (RoR2: 1.5) |
 | 0x68 | `reserved2[6]` | 0 |
 | 0x80 | `weapons[64]` | `{ float k; float proc; }` per weapon id: damage coefficient per UK point (as a multiple of `damage`) and procCoefficient per hit |
 
 `HostLink.WriteHostCombat(level, damage, critPercent, critMultiplier, damageScale, headshotMultiplier, k[], proc[])` only touches memory when something changed, so call it every frame (or at 20 Hz). Rebuild `k[]`/`proc[]` from `WeaponTable.Fill` whenever your balance config changes.
+
+### 8.4 Host-authoritative health (optional extension, `HOSTFLAG_OWNS_HEALTH`)
+
+By default V1 has ULTRAKILL's own 100 HP and a host hit removes a share of it. A host whose character has real health, shield,
+barrier, healing and death rules (Risk of Rain 2) can instead own the health and let V1 mirror it. The host publishes `health`,
+`fullHealth`, `shield`, `fullShield`, `barrier`, `cursePenalty` and the `DEAD` bit in `ErmcHostCombat` (`HostLink.WriteHostHealth`,
+independent of `WriteHostCombat`), then sets `HOSTFLAG_OWNS_HEALTH` in `ErmcHostEvents.flags`. The guest uses it when
+`[Combat] HealthModel = Host` (default); `V1` keeps the old behaviour; a host without the bit always gets the old behaviour.
+
+- **Display.** V1's bar shows `100 * (health + shield + barrier) / fullHealth`, rounded, at least 1 while alive, capped at `[Combat] OverhealCap` (200, ULTRAKILL's
+  overheal): shield and barrier are the overheal band and are lost first, like in RoR2. Max-HP items, level ups and curse change `fullHealth`, never the 100 of the bar
+  (`HealthWire.UkHp`). Hard damage (the yellow bar) is off by default (`HardDamageVisual`).
+- **Damage.** The host character takes its hits in the host game. The host keeps reporting them as hunter events; the guest only plays ULTRAKILL's hurt feedback
+  (flash, sound, shake, i-frames, style loss) and does **not** subtract HP, so nothing is counted twice. Damage ULTRAKILL itself deals to V1 (own explosions, hazards) is
+  neutralised and not forwarded.
+- **Dodge, i-frames, parry.** The guest publishes `combatFlags` (`DASHING`, `HURT_FRAMES`, `PARRY_WINDOW` with `punchSeq`). While `DASHING` / `HURT_FRAMES` is set the host
+  should ignore incoming damage (RoR2: `DamageInfo.rejected` in a `TakeDamage` prefix); only trust the flags while the guest is alive and the control block is fresh. For a hit
+  that arrives while `PARRY_WINDOW` is set, `punchSeq` was not consumed yet and the attacker is within melee range, the host rejects the hit, consumes the punch, and reports
+  the hit as a hunter event with `lastHitKind |= HUNTERKIND_PARRIED` (bit 8). The guest then performs ULTRAKILL's parry (flash, hitstop, full heal request, style) and the
+  counterattack on the attacker; without the bit the guest keeps its own after-the-fact parry check.
+- **Heals.** Every ULTRAKILL heal of V1 (blood, parry, soul orbs) is added to `healMilli` (capped at 200 UK HP per call, so a parry's 999 means "to full"). The host heals its
+  character by `HealthWire.HealAmount(ukHp, fullHealth, scale)` = `ukHp / 100 * fullHealth * scale` (RoR2 host: `[Combat] BloodHealScale`, 0.5).
+- **Death.** V1 dies when `DEAD` is set. The host should not let a lethal hit kill the character outside the shared-life protocol: it keeps it alive at 1 HP, publishes
+  `DEAD`, ignores further damage, and waits for the guest's `mcDeaths++` (then applies its death policy, soft respawn or a real death) or for a timeout of its own.
+  A real death of the host character that the guest did not cause still arrives as `hostDeaths++`.
 
 ## 9. frames.shm in detail
 

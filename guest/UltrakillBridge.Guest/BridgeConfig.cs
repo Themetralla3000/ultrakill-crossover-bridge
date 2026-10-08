@@ -19,6 +19,9 @@ namespace UltrakillBridge.Guest
         public static ConfigEntry<bool> SolidEnemies;
         public static ConfigEntry<bool> StatDamage;
         public static ConfigEntry<bool> HitLog;
+        public static ConfigEntry<string> HealthModel;
+        public static ConfigEntry<float> OverhealCap;
+        public static ConfigEntry<bool> HardDamageVisual;
 
         // Rendering / window
         public static ConfigEntry<bool> Composite;
@@ -73,6 +76,12 @@ namespace UltrakillBridge.Guest
                 "Damage V1 takes when the stand-in loses a share of its max HP: share * 100 * scale.");
             StatDamage = cfg.Bind("Combat", "StatDamage", true,
                 "Use the stat damage wire when the host offers it (it advertises HostStatDamage): raw ULTRAKILL damage + weapon id + hit count + shot sequence, so the host can apply its own damage/crit/proc maths. Off (or a host without it, e.g. Elden Ring): damage is sent as a fraction of the enemy's max HP.");
+            HealthModel = cfg.Bind("Combat", "HealthModel", "Host",
+                "Whose health V1 has. Host: when the host advertises HostOwnsHealth (Risk of Rain 2 does) V1's bar mirrors the host character (100 * combined health / full health; shield and barrier show as overheal), V1 dies when the host character dies, blood and parry heals heal the host character, and dash / hurt i-frames and the punch parry make the host ignore those hits. V1: ULTRAKILL's own 100 HP, hits taken as a share of the host's max HP (the old behaviour; also what hosts without the capability get).");
+            OverhealCap = cfg.Bind("Combat", "OverhealCap", 200f,
+                "Largest value of V1's bar while the host owns the health: ULTRAKILL shows up to 200 (overheal). Shield + barrier above 100 % of the host's full health are shown up to this.");
+            HardDamageVisual = cfg.Bind("Combat", "HardDamageVisual", false,
+                "Keep ULTRAKILL's yellow hard-damage bar while the host owns the health. It is only a visual there (the host heals regardless), so it is off by default.");
             HitLog = cfg.Bind("Combat", "HitLog", false,
                 "Measurement probe: append every hit on a host enemy to <bridge dir>/hitlog.csv (time, hitter, weapon, multipliers, head/limb, shot sequence...). Summarise with scripts/hitlog-summary.ps1. Does not change behaviour.");
             SolidEnemies = cfg.Bind("Combat", "SolidEnemies", false,
@@ -152,6 +161,13 @@ namespace UltrakillBridge.Guest
                 Warn(ShowGuestPrompt.Definition.Key, sg, "Auto");
                 ShowGuestPrompt.Value = "Auto";
             }
+            string hm = (HealthModel.Value ?? "").Trim();
+            if (!(hm.Equals("Host", System.StringComparison.OrdinalIgnoreCase) || hm.Equals("V1", System.StringComparison.OrdinalIgnoreCase)))
+            {
+                Warn(HealthModel.Definition.Key, hm, "Host");
+                HealthModel.Value = "Host";
+            }
+            Clamp(OverhealCap, 100f, 200f, 200f);
             Clamp(RepeatIntervalMs, 50, 2000, 250);
             if (UnlocksPerBoss.Value < 1 || UnlocksPerBoss.Value > 10) { Warn(UnlocksPerBoss.Definition.Key, UnlocksPerBoss.Value, 1); UnlocksPerBoss.Value = 1; }
             Clamp(MetresPerUnit, 0.05f, 5f, 0.5f);

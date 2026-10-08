@@ -34,6 +34,10 @@ Options: `--dir <path>` (sets `UKBRIDGE_DIR` for this process; default `%TEMP%\e
   published last tick; at 0 hp an enemy is dead (flag bit0) for 3 s and then respawns. Every hit is logged.
 - Hunter events: Hit me / `H` simulates the host character losing HP (max 1200, `lastHitFrom` = nearest enemy). Enemy melee
   within 2 m (toggle in the panel).
+- Host-authoritative health (`O` toggles, on by default): the fake character has 1200 health, shield and barrier, regenerates 1 %/s, is healed by the guest's blood
+  heals (`BloodHealScale` 0.5), rejects hits while the guest reports dash / hurt i-frames, rejects and reports (`HunterKindParried`) one close hit per punch inside the
+  parry window, and intercepts a lethal hit (health stays 1, `CombatDead` published) until the guest's death or a 2 s timeout. `G` heals 25 %, `J` adds shield and barrier;
+  the overlay shows hp / shield / barrier, the guest's combat bits, dodged / parried / heal counters.
 - Deaths: `mcDeaths` change while stood in kills the host character; "Kill plane" / `K` bumps `hostDeaths`.
 - F8 in the host window: `mcSwitchReq++`. `hostFocusReq` change: the window is activated.
 - Action: `mcActionReq` change is acked with result 1 near the door (<= 2 m, toggles open/closed), else 0.
