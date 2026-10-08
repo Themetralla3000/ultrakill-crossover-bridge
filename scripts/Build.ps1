@@ -95,7 +95,11 @@ $Dlls = 'UltrakillBridge.Guest.dll', 'UltrakillBridge.Protocol.dll'
 foreach ($Name in $Dlls) {
     if (-not (Test-Path -LiteralPath (Join-Path $Out $Name))) { throw "Missing $Out\$Name (build first, or do not use -SkipBuild)." }
 }
-if (Test-Path -LiteralPath $Stage) { Remove-Item -LiteralPath $Stage -Recurse -Force }
+# Refresh the binaries only: keep the user's BepInEx\config and the logs from previous sessions.
+foreach ($Sub in 'BepInEx\core', 'BepInEx\plugins') {
+    $Old = Join-Path $Stage $Sub
+    if (Test-Path -LiteralPath $Old) { Remove-Item -LiteralPath $Old -Recurse -Force }
+}
 $StageCore = Join-Path $Stage 'BepInEx\core'
 $StagePlugin = Join-Path $Stage 'BepInEx\plugins\UltrakillBridge'
 New-Item -ItemType Directory -Path $StageCore, $StagePlugin, (Join-Path $Stage 'BepInEx\config') -Force | Out-Null
