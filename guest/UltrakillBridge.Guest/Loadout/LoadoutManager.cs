@@ -85,7 +85,9 @@ namespace UltrakillBridge.Guest
             // The game replaces the loadout on scene loads (new GunSetter) and some levels call PlayerLoadout.SetLoadout.
             bool intact = _applied != null && guns == _appliedGuns && fists == _appliedFists
                           && guns.forcedLoadout == _applied && fists.forcedLoadout == _applied;
-            if (key == _appliedKey && intact) return;
+            // The forced loadout can be accepted while the guns never appear (applied before GunControl was ready, or
+            // replaced afterwards): if a gun should be there and no slot holds one, apply again.
+            if (key == _appliedKey && intact && !(ExpectsGuns(unlocked) && GunCount(guns) == 0 && nowMs >= _retryAtMs)) return;
             if (nowMs < _retryAtMs) return;
 
             ForcedLoadout fl = Compose(unlocked);
@@ -96,8 +98,18 @@ namespace UltrakillBridge.Guest
                 fists.forcedLoadout = fl;
                 guns.ResetWeapons();
                 fists.ResetFists();
+                // ResetWeapons rebuilds the slots but GunControl keeps pointing at the destroyed weapon: draw one.
+                var gc = guns.gunc != null ? guns.gunc : guns.GetComponent<GunControl>();
+                if (gc != null && !gc.noWeapons) gc.YesWeapon();
             }, nowMs, () => ok = false);
             if (!ok) return;
+            int count = GunCount(guns);
+            if (ExpectsGuns(unlocked) && count == 0)
+            {
+                _retryAtMs = nowMs + 1000;
+                Plugin.Log.LogWarning("Loadout: the forced loadout produced no guns yet; retrying in 1 s.");
+            }
+            Plugin.Log.LogInfo($"Loadout: guns in slots: {SlotSummary(guns)}");
 
             bool sameRun = mode == Effective.Progression && _lastWasProgression && _lastSeed == seed && _lastCount >= 0;
             if (sameRun && unlocked.Count > _lastCount)
@@ -112,6 +124,36 @@ namespace UltrakillBridge.Guest
             _lastWasProgression = mode == Effective.Progression;
             _lastSeed = seed;
             _lastCount = unlocked != null ? unlocked.Count : -1;
+        }
+
+        private static bool ExpectsGuns(List<string> unlocked)
+        {
+            if (unlocked == null) return true;
+            foreach (string id in unlocked) if (!id.StartsWith("arm", StringComparison.Ordinal)) return true;
+            return false;
+        }
+
+        private static int GunCount(GunSetter guns)
+        {
+            var gc = guns != null ? (guns.gunc != null ? guns.gunc : guns.GetComponent<GunControl>()) : null;
+            if (gc == null || gc.slots == null) return 0;
+            int n = 0;
+            foreach (var slot in gc.slots) if (slot != null) foreach (var w in slot) if (w != null) n++;
+            return n;
+        }
+
+        private static string SlotSummary(GunSetter guns)
+        {
+            var gc = guns != null ? (guns.gunc != null ? guns.gunc : guns.GetComponent<GunControl>()) : null;
+            if (gc == null || gc.slots == null) return "no GunControl";
+            var parts = new List<string>();
+            for (int i = 0; i < gc.slots.Count; i++)
+            {
+                int n = 0;
+                if (gc.slots[i] != null) foreach (var w in gc.slots[i]) if (w != null) n++;
+                parts.Add((i + 1) + ":" + n);
+            }
+            return string.Join(" ", parts) + (gc.currentWeapon != null ? ", current " + gc.currentWeapon.name : ", no current weapon");
         }
 
         private void Safe(Action a, long nowMs, Action onFail)
