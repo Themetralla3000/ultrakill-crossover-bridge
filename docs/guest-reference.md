@@ -60,6 +60,7 @@ Bridge folder resolution (guest, fake host, host SDK): `UKBRIDGE_DIR`, else `ERM
 | Rendering | `WindowMode` | Layered | `Layered`, `Region` or `Tiny` (see below). Environment variable `UKBRIDGE_WINDOW_MODE` overrides. |
 | Rendering | `CaptureScale` | 1 | Capture resolution as a fraction of the host window (0.25-1). Lower = faster, blurrier V1 layers. |
 | Rendering | `CaptureFlipRows` | false | Flip captured frames vertically. |
+| Rendering | `SyncCameraToCapture` | false | Move the host camera only when a captured frame lands (exact alignment, but stutters when captures are slower than the host). Off = smooth camera, newest frame composited. |
 | Rendering | `WorldAlpha` / `HandAlpha` / `GuiAlpha` | MaxRgb / Opaque / MaxRgb | Alpha repair per layer: `None`, `Opaque` or `MaxRgb` (alpha from the brightest channel). |
 | Rendering | `HideMainRender` | false | Stop ULTRAKILL's own camera from drawing the (hidden) world, to save GPU time. Experimental. |
 | Terrain | `Radius` | 24 | Host terrain is sampled this far (metres) around V1. Range 4-64. |

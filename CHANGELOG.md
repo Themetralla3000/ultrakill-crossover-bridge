@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 — 2026-10-08
+
+- The live camera pose is published every guest frame and the host composites the newest captured frame, so the
+  host camera is no longer limited to the capture rate (it stuttered in Risk of Rain 2: 60 fps host, ~39 captures/s).
+  `SyncCameraToCapture = true` restores the previous frame-locked behaviour.
+
 ## 0.1.0 - 2026-10-08
 
 First release of the standalone kit, extracted from [UltraRing](https://github.com/Themetralla3000/UltraRing) 0.2.0

@@ -25,6 +25,7 @@ namespace UltrakillBridge.Guest
         public static ConfigEntry<string> WindowMode;
         public static ConfigEntry<float> CaptureScale;
         public static ConfigEntry<bool> CaptureFlipRows;
+        public static ConfigEntry<bool> SyncCameraToCapture;
         public static ConfigEntry<string> WorldAlpha, HandAlpha, GuiAlpha;
         public static ConfigEntry<bool> HideMainRender;
 
@@ -66,6 +67,8 @@ namespace UltrakillBridge.Guest
 
             CaptureScale = cfg.Bind("Rendering", "CaptureScale", 1f,
                 "Capture resolution as a fraction of the host window (lower = faster, blurrier V1 layer).");
+            SyncCameraToCapture = cfg.Bind("Rendering", "SyncCameraToCapture", false,
+                "Only move the host camera when a captured frame lands (exact alignment of V1's effects, but the camera moves at the capture rate and can stutter). Off: smooth camera, newest frame composited.");
             CaptureFlipRows = cfg.Bind("Rendering", "CaptureFlipRows", false,
                 "Flip captured frames vertically. Turn on if V1's arm and HUD appear upside down in the host.");
             WorldAlpha = cfg.Bind("Rendering", "WorldAlpha", "MaxRgb",

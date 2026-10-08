@@ -463,7 +463,13 @@ namespace UltrakillBridge.Guest
             if (!Driving) Plugin.Log.LogInfo("Driving the host camera and stand-in.");
             Driving = true;
             _controlReleased = false;
-            if (BridgeConfig.Composite.Value && _capture.Submit(Link, c, Map)) return; // published with its frame
+            if (BridgeConfig.Composite.Value)
+            {
+                bool owned = _capture.Submit(Link, c, Map);
+                if (FrameCapture.SyncCameraToCapture && owned) return; // published with its frame
+                if (_capture.HasFrame) c.flags |= Protocol.CtrlComposite;
+            }
+            // Live pose every frame; the host composites the newest captured frame whose pose id is not newer.
             Link.WriteControl(ref c);
         }
 

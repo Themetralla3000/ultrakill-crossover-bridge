@@ -88,6 +88,16 @@ namespace UltrakillBridge.Guest.Render
 
         private ulong _lastHostFrame;
         private bool _haveHostFrame;
+        /// <summary>
+        /// true: the host only sees a pose once its pixels are in a slot (Minecraft Ring's behaviour: exact alignment,
+        /// but the host camera moves at the capture rate). false (default): the session publishes the live pose every
+        /// frame and the host composites the newest captured frame, so the camera is as smooth as the host's frame rate.
+        /// </summary>
+        public static bool SyncCameraToCapture = false;
+
+        /// <summary>A frame has been published since the last Cancel/teardown: COMPOSITE may be set.</summary>
+        public bool HasFrame { get; private set; }
+
         private ErmcControl _lastControl;
         private bool _haveLast;
         private long _lastControlMs, _lastSubmitMs, _lastLandMs;
@@ -213,7 +223,7 @@ namespace UltrakillBridge.Guest.Render
                 }
 
                 // The host drops the guest's control if its seq stalls for 1 s; frames can stall (host paused, slow GPU).
-                if (_haveLast && now - _lastControlMs >= KeepAliveMs && now - _lastSubmitMs < 500)
+                if (SyncCameraToCapture && _haveLast && now - _lastControlMs >= KeepAliveMs && now - _lastSubmitMs < 500)
                 {
                     ErmcControl c = _lastControl;
                     // A stale picture must not stay on screen: keep the pose alive but stop compositing.
@@ -255,6 +265,7 @@ namespace UltrakillBridge.Guest.Render
             }
             _queue.Clear();
             _haveLast = false;
+            HasFrame = false;
         }
 
         public void Teardown() => ReleaseRig();
@@ -379,6 +390,7 @@ namespace UltrakillBridge.Guest.Render
             if (_syncTex != null) { UnityEngine.Object.Destroy(_syncTex); _syncTex = null; }
             if (_rig != null) { _rig.Destroy(); _rig = null; }
             _haveLast = false;
+            HasFrame = false;
         }
 
         // ---- readback / publish --------------------------------------------------------------------------
@@ -426,14 +438,18 @@ namespace UltrakillBridge.Guest.Render
                 j.Near, j.Far, j.Fov, aspect);
             _writeMs = Mathf.Lerp(_writeMs, (float)sw.Elapsed.TotalMilliseconds, 0.1f);
 
-            // The pixels are in a slot: only now may the host see this pose.
-            ErmcControl c = j.Ctrl;
-            c.flags |= Protocol.CtrlComposite;
-            link.WriteControl(ref c);
-            _lastControl = c;
-            _haveLast = true;
-            _lastControlMs = now;
+            HasFrame = true;
             _lastLandMs = now;
+            if (SyncCameraToCapture)
+            {
+                // The pixels are in a slot: only now may the host see this pose.
+                ErmcControl c = j.Ctrl;
+                c.flags |= Protocol.CtrlComposite;
+                link.WriteControl(ref c);
+                _lastControl = c;
+                _haveLast = true;
+                _lastControlMs = now;
+            }
             _errors = 0;
             _fpsCount++;
         }

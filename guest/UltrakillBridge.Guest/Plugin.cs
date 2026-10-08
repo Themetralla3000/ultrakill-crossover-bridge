@@ -57,6 +57,7 @@ namespace UltrakillBridge.Guest
         {
             Render.FrameCapture.Scale = Mathf.Clamp(BridgeConfig.CaptureScale.Value, 0.25f, 1f);
             Render.FrameCapture.FlipRows = BridgeConfig.CaptureFlipRows.Value;
+            Render.FrameCapture.SyncCameraToCapture = BridgeConfig.SyncCameraToCapture.Value;
             Render.FrameCapture.WorldAlpha = ParseAlpha(BridgeConfig.WorldAlpha, AlphaFix.MaxRgb);
             Render.FrameCapture.HandAlpha = ParseAlpha(BridgeConfig.HandAlpha, AlphaFix.Opaque);
             Render.FrameCapture.GuiAlpha = ParseAlpha(BridgeConfig.GuiAlpha, AlphaFix.MaxRgb);
