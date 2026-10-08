@@ -21,10 +21,11 @@ namespace UltrakillBridge.Guest.Render
         public const int LayerUi = 5;
         public const int LayerAlwaysOnTop = 13;
 
-        /// <summary>Layers removed from the world pass: player (2), water (4), level geometry (6,7,8,17,24,25) and the
-        /// invisible enemy hitboxes / triggers (10,11,12,16,20).</summary>
-        public const int ExcludedWorldLayers = (1 << 2) | (1 << 4) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 10) | (1 << 11)
-                                               | (1 << 12) | (1 << 16) | (1 << 17) | (1 << 20) | (1 << 24) | (1 << 25);
+        /// <summary>Layers removed from the world pass: player (2), water (4), level geometry (6,7,8,17,24,25) and invisible
+        /// helpers (16,20). Layers 10-12 stay: the bridge's enemy proxies have no renderers, but coins (prefab "Coin" is on
+        /// layer 10) and other projectiles/effects live there.</summary>
+        public const int ExcludedWorldLayers = (1 << 2) | (1 << 4) | (1 << 6) | (1 << 7) | (1 << 8)
+                                               | (1 << 16) | (1 << 17) | (1 << 20) | (1 << 24) | (1 << 25);
 
         /// <summary>
         /// Also stop ULTRAKILL's own Main/HUD cameras from drawing anything (cullingMask 0) to save GPU time. Its window is
