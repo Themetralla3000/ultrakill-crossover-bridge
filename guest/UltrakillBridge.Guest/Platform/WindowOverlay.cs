@@ -58,6 +58,7 @@ namespace UltrakillBridge.Guest.Platform
         private int _regionW, _regionH;
         private int _alpha = -1;
         private bool _loggedAlphaOk;
+        private bool _hostWasFront;
         private bool _layeredOk = true;
         private bool _fullscreenMarked;
         private long _nextTaskbarMs;
@@ -218,6 +219,16 @@ namespace UltrakillBridge.Guest.Platform
             }
             _wasDrawNothing = drawNothing;
 
+            // Not owned by the host: if the host comes to the front while V1 is played (Alt+Tab, taskbar), it would
+            // cover us and get the input; take the focus back once per such activation.
+            if (!BridgeConfig.OwnedByHost.Value && !drawNothing && !_hidden)
+            {
+                IntPtr fgNow = GetForegroundWindow();
+                bool hostFront = fgNow != IntPtr.Zero && ProcessIdOf(fgNow) == (uint)_hostPid;
+                if (hostFront && !_hostWasFront) RequestFocus(needsDriving: true);
+                _hostWasFront = hostFront;
+            }
+
             UpdateAlpha(drawNothing);
             UpdateGeometry(now, in state, hostAvailable);
             if (now >= _nextVerify)
@@ -334,9 +345,13 @@ namespace UltrakillBridge.Guest.Platform
             if (layered) ex |= WS_EX_LAYERED;
             else if (!_origLayered) ex &= ~WS_EX_LAYERED;
 
-            if (GetOwner(_hwnd) != _host)
+            // Owning a window of another process attaches the two threads' input queues. A host that pumps messages
+            // only once per frame (Unity: Risk of Rain 2) then delays every mouse/keyboard event of ULTRAKILL by up to
+            // seconds. Default: not owned; the window is kept above the host by re-focusing it (see TickCore).
+            IntPtr wantOwner = BridgeConfig.OwnedByHost.Value ? _host : _origOwner;
+            if (GetOwner(_hwnd) != wantOwner)
             {
-                if (!SetLong(_hwnd, GWLP_HWNDPARENT, _host.ToInt64(), out int err))
+                if (!SetLong(_hwnd, GWLP_HWNDPARENT, wantOwner.ToInt64(), out int err))
                 {
                     LogOnce("owner", $"Could not set the host window as owner (Win32 error {err}); the overlay would not stay above the host.");
                     _note = "owner failed";
@@ -527,7 +542,7 @@ namespace UltrakillBridge.Guest.Platform
             bool bad = false;
             long style = GetStyle(_hwnd), ex = GetExStyle(_hwnd);
             if ((style & BorderStyles) != 0) bad = true;
-            if (GetOwner(_hwnd) != _host) bad = true;
+            if (BridgeConfig.OwnedByHost.Value && GetOwner(_hwnd) != _host) bad = true;
             if (_mode == OverlayWindowMode.Layered && _layeredOk && (ex & WS_EX_LAYERED) == 0) bad = true;
             if (GetWindowRect(_hwnd, out RECT r) && !Same(r, _wantRect) && now - _rectChangedMs > SettleMs) bad = true;
 

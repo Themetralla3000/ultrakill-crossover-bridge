@@ -23,6 +23,7 @@ namespace UltrakillBridge.Guest
         public static ConfigEntry<KeyCode> SwitchKey;
         public static ConfigEntry<KeyCode> InteractKey;
         public static ConfigEntry<string> WindowMode;
+        public static ConfigEntry<bool> OwnedByHost;
         public static ConfigEntry<float> CaptureScale;
         public static ConfigEntry<bool> CaptureFlipRows;
         public static ConfigEntry<bool> SyncCameraToCapture;
@@ -62,6 +63,8 @@ namespace UltrakillBridge.Guest
             SwitchKey = cfg.Bind("Rendering", "SwitchKey", KeyCode.F8, "Hand control to the host game and back.");
             InteractKey = cfg.Bind("Rendering", "InteractKey", KeyCode.V,
                 "Use what the host offers (open doors, pull levers, pick up items, use checkpoints). E/Q/R/F/G are ULTRAKILL's.");
+            OwnedByHost = cfg.Bind("Rendering", "OwnedByHost", false,
+                "Make the host window the owner of ULTRAKILL's input window (Minecraft Ring's approach). Windows then attaches the two processes' input queues: with hosts that pump messages once per frame (Unity games such as Risk of Rain 2) input lags by up to seconds. Off: kept above the host by re-focusing.");
             WindowMode = cfg.Bind("Rendering", "WindowMode", "Layered",
                 "How the input window hides itself above the host: Layered (constant opacity 1/255), Region (full-size window clipped to one pixel; use if Layered shows ULTRAKILL opaque) or Tiny (a 1x1 window). Env UKBRIDGE_WINDOW_MODE overrides.");
 
